@@ -10,12 +10,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "electron": "^40.7.0",
     "phaser": "^3.87.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "electron": "^40.7.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "copy-webpack-plugin": "^14.0.0",
