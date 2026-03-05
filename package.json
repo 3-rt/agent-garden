@@ -1,0 +1,30 @@
+{
+  "name": "agent-garden",
+  "version": "0.1.0",
+  "description": "Visual desktop app where AI agents are pixel art gardeners working on your codebase",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "start": "npm run build && electron .",
+    "build": "webpack --config webpack.config.js",
+    "dev": "webpack --config webpack.config.js --watch"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "electron": "^40.7.0",
+    "phaser": "^3.87.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "copy-webpack-plugin": "^14.0.0",
+    "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.3",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.7.3",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1"
+  }
+}
