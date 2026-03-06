@@ -25,6 +25,14 @@ export class ClaudeService {
     this.apiKey = process.env.ANTHROPIC_API_KEY;
   }
 
+  setApiKey(key: string) {
+    this.apiKey = key;
+  }
+
+  hasApiKey(): boolean {
+    return !!this.apiKey;
+  }
+
   async streamTask(
     prompt: string,
     onChunk: (text: string, done: boolean) => void
@@ -45,23 +53,38 @@ export class ClaudeService {
       const Anthropic = require('@anthropic-ai/sdk');
       const client = new Anthropic({ apiKey: this.apiKey });
 
-      const stream = await client.messages.stream({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: prompt }],
-      });
+      try {
+        const stream = await client.messages.stream({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: prompt }],
+        });
 
-      for await (const event of stream) {
-        if (
-          event.type === 'content_block_delta' &&
-          event.delta.type === 'text_delta'
-        ) {
-          onChunk(event.delta.text, false);
-          fullText += event.delta.text;
+        for await (const event of stream) {
+          if (
+            event.type === 'content_block_delta' &&
+            event.delta.type === 'text_delta'
+          ) {
+            onChunk(event.delta.text, false);
+            fullText += event.delta.text;
+          }
+        }
+        onChunk('', true);
+      } catch (err: any) {
+        // Classify error for the UI
+        const status = err?.status || err?.statusCode;
+        if (status === 401) {
+          throw new ClaudeApiError('Invalid API key. Please check your key and try again.', 'auth');
+        } else if (status === 429) {
+          const retryAfter = err?.headers?.['retry-after'] || 30;
+          throw new ClaudeApiError(`Rate limited. Try again in ${retryAfter}s.`, 'rate-limit');
+        } else if (err?.code === 'ENOTFOUND' || err?.code === 'ECONNREFUSED') {
+          throw new ClaudeApiError('No internet connection.', 'network');
+        } else {
+          throw new ClaudeApiError(err?.message || 'Unknown API error', 'unknown');
         }
       }
-      onChunk('', true);
     }
 
     const { filename, content } = this.parseResponse(fullText);
@@ -73,7 +96,6 @@ export class ClaudeService {
       mkdirSync(directory, { recursive: true });
     }
     const filePath = path.join(directory, filename);
-    // Ensure subdirectories exist
     const dir = path.dirname(filePath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
@@ -104,5 +126,12 @@ export class ClaudeService {
     if (lower.includes('style') || lower.includes('css')) return 'styles.css';
     if (lower.includes('api') || lower.includes('service')) return 'service.ts';
     return 'output.ts';
+  }
+}
+
+export class ClaudeApiError extends Error {
+  constructor(message: string, public readonly type: 'auth' | 'rate-limit' | 'network' | 'unknown') {
+    super(message);
+    this.name = 'ClaudeApiError';
   }
 }

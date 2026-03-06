@@ -45,6 +45,10 @@ export class GardenGame {
     this.scene?.onFileModified(filename);
   }
 
+  onError() {
+    this.scene?.showError();
+  }
+
   destroy() {
     this.game.destroy(true);
   }

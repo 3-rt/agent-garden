@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, safeStorage } from 'electron';
 import * as path from 'path';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { ClaudeService } from './services/claude';
+import { ClaudeService, ClaudeApiError } from './services/claude';
 import { FileWatcher } from './services/watcher';
 
 let mainWindow: BrowserWindow | null = null;
@@ -15,20 +15,43 @@ let isProcessing = false;
 // Config persistence
 const configPath = path.join(app.getPath('userData'), 'agent-garden-config.json');
 
-function loadConfig(): { watchDirectory: string } {
+interface AppConfig {
+  watchDirectory: string;
+  encryptedApiKey?: string;
+}
+
+function loadConfig(): AppConfig {
   const defaultDir = path.join(app.getPath('home'), 'agent-garden-output');
   try {
     if (existsSync(configPath)) {
-      return JSON.parse(readFileSync(configPath, 'utf-8'));
+      return { watchDirectory: defaultDir, ...JSON.parse(readFileSync(configPath, 'utf-8')) };
     }
   } catch {}
   return { watchDirectory: defaultDir };
 }
 
-function saveConfig(config: { watchDirectory: string }) {
+function saveConfig(config: Partial<AppConfig>) {
   const dir = path.dirname(configPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2));
+  const existing = loadConfig();
+  const merged = { ...existing, ...config };
+  writeFileSync(configPath, JSON.stringify(merged, null, 2));
+}
+
+function loadApiKey(): string | null {
+  const config = loadConfig();
+  if (!config.encryptedApiKey) return null;
+  try {
+    const buf = Buffer.from(config.encryptedApiKey, 'base64');
+    return safeStorage.decryptString(buf);
+  } catch {
+    return null;
+  }
+}
+
+function saveApiKey(key: string) {
+  const encrypted = safeStorage.encryptString(key).toString('base64');
+  saveConfig({ encryptedApiKey: encrypted });
 }
 
 function startWatcher(directory: string) {
@@ -58,12 +81,16 @@ async function processTask(taskId: string, prompt: string) {
     }
 
     mainWindow?.webContents.send('task:status', { taskId, status: 'complete' });
-  } catch (err) {
+  } catch (err: any) {
+    const message = err instanceof ClaudeApiError ? err.message : `${err}`;
+    const type = err instanceof ClaudeApiError ? err.type : 'unknown';
+
     mainWindow?.webContents.send('agent:stream', {
       taskId,
-      text: `Error: ${err}`,
+      text: `Error: ${message}`,
       done: true,
     });
+    mainWindow?.webContents.send('agent:error', { taskId, message, type });
     mainWindow?.webContents.send('task:status', { taskId, status: 'error' });
   }
 
@@ -94,6 +121,12 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+
+  // Load persisted API key
+  const storedKey = loadApiKey();
+  if (storedKey) {
+    claude.setApiKey(storedKey);
+  }
 
   // Start file watcher with persisted directory
   const config = loadConfig();
@@ -136,6 +169,16 @@ app.whenReady().then(() => {
   ipcMain.on('watcher:set-directory', (_event, directory: string) => {
     startWatcher(directory);
     saveConfig({ watchDirectory: directory });
+  });
+
+  // API key management
+  ipcMain.on('api-key:set', (_event, key: string) => {
+    claude.setApiKey(key);
+    saveApiKey(key);
+  });
+
+  ipcMain.handle('api-key:has', () => {
+    return claude.hasApiKey();
   });
 });
 

@@ -4,6 +4,8 @@ import type { AgentStreamChunk, FileEvent, TaskStatus, FileSaved } from '../shar
 contextBridge.exposeInMainWorld('electronAPI', {
   submitTask: (prompt: string) => ipcRenderer.send('task:submit', prompt),
   selectDirectory: () => ipcRenderer.invoke('dialog:select-directory'),
+  setApiKey: (key: string) => ipcRenderer.send('api-key:set', key),
+  getHasApiKey: () => ipcRenderer.invoke('api-key:has'),
   onAgentStream: (callback: (chunk: AgentStreamChunk) => void) => {
     ipcRenderer.on('agent:stream', (_event, chunk) => callback(chunk));
   },
@@ -18,5 +20,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onDirectoryChanged: (callback: (dir: string) => void) => {
     ipcRenderer.on('directory:changed', (_event, dir) => callback(dir));
+  },
+  onAgentError: (callback: (error: { taskId: string; message: string }) => void) => {
+    ipcRenderer.on('agent:error', (_event, error) => callback(error));
   },
 });

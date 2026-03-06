@@ -30,11 +30,14 @@ export interface FileSaved {
 export interface ElectronAPI {
   submitTask: (prompt: string) => void;
   selectDirectory: () => Promise<string | null>;
+  setApiKey: (key: string) => void;
+  getHasApiKey: () => Promise<boolean>;
   onAgentStream: (callback: (chunk: AgentStreamChunk) => void) => void;
   onFileEvent: (callback: (event: FileEvent) => void) => void;
   onTaskStatus: (callback: (status: TaskStatus) => void) => void;
   onFileSaved: (callback: (info: FileSaved) => void) => void;
   onDirectoryChanged: (callback: (dir: string) => void) => void;
+  onAgentError: (callback: (error: { taskId: string; message: string }) => void) => void;
 }
 
 declare global {
