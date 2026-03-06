@@ -2,14 +2,15 @@ import React, { useState } from 'react';
 
 interface TaskInputProps {
   onSubmit: (prompt: string) => void;
+  disabled?: boolean;
 }
 
-export function TaskInput({ onSubmit }: TaskInputProps) {
+export function TaskInput({ onSubmit, disabled }: TaskInputProps) {
   const [value, setValue] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!value.trim()) return;
+    if (!value.trim() || disabled) return;
     onSubmit(value.trim());
     setValue('');
   };
@@ -20,7 +21,8 @@ export function TaskInput({ onSubmit }: TaskInputProps) {
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Give your garden agent a task..."
+        disabled={disabled}
+        placeholder={disabled ? "Agent is working..." : "Give your garden agent a task..."}
         style={{
           flex: 1,
           padding: '8px 12px',
@@ -35,18 +37,19 @@ export function TaskInput({ onSubmit }: TaskInputProps) {
       />
       <button
         type="submit"
+        disabled={disabled}
         style={{
           padding: '8px 20px',
-          background: '#0f3460',
+          background: disabled ? '#0a2040' : '#0f3460',
           border: 'none',
           borderRadius: '4px',
-          color: '#e0e0e0',
+          color: disabled ? '#666' : '#e0e0e0',
           fontFamily: 'monospace',
           fontSize: '14px',
-          cursor: 'pointer',
+          cursor: disabled ? 'not-allowed' : 'pointer',
         }}
       >
-        Plant
+        {disabled ? 'Working...' : 'Plant'}
       </button>
     </form>
   );

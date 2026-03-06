@@ -37,6 +37,14 @@ export class GardenGame {
     this.scene?.completeTask();
   }
 
+  onFileCreated(filename: string) {
+    this.scene?.onFileCreated(filename);
+  }
+
+  onFileModified(filename: string) {
+    this.scene?.onFileModified(filename);
+  }
+
   destroy() {
     this.game.destroy(true);
   }
