@@ -2,6 +2,7 @@
   "name": "agent-garden",
   "version": "0.1.0",
   "description": "Visual desktop app where AI agents are pixel art gardeners working on your codebase",
+  "license": "MIT",
   "main": "dist/main/main.js",
   "scripts": {
     "start": "npm run build && electron .",
