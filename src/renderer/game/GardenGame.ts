@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GardenScene } from './scenes/GardenScene';
+import type { PlantState } from '../../shared/types';
 
 export class GardenGame {
   private game: Phaser.Game;
@@ -25,16 +26,16 @@ export class GardenGame {
     });
   }
 
-  onTaskStart() {
-    this.scene?.startTask();
+  onTaskStart(agentId: string) {
+    this.scene?.startTask(agentId);
   }
 
-  onAgentThought(text: string) {
-    this.scene?.showThought(text);
+  onAgentThought(agentId: string, text: string) {
+    this.scene?.showThought(agentId, text);
   }
 
-  onTaskComplete() {
-    this.scene?.completeTask();
+  onTaskComplete(agentId: string) {
+    this.scene?.completeTask(agentId);
   }
 
   onFileCreated(filename: string) {
@@ -45,8 +46,34 @@ export class GardenGame {
     this.scene?.onFileModified(filename);
   }
 
-  onError() {
-    this.scene?.showError();
+  onError(agentId: string) {
+    this.scene?.showError(agentId);
+  }
+
+  updateAgentTokens(agentId: string, tokens: number) {
+    this.scene?.updateAgentTokens(agentId, tokens);
+  }
+
+  // Phase 4: Themes
+  setTheme(themeId: string) {
+    this.scene?.setTheme(themeId);
+  }
+
+  getThemeId(): string {
+    return this.scene?.getThemeId() || 'garden';
+  }
+
+  // Phase 4: Persistence
+  getPlantStates(): PlantState[] {
+    return this.scene?.getPlantStates() || [];
+  }
+
+  restorePlants(plants: PlantState[]) {
+    this.scene?.restorePlants(plants);
+  }
+
+  getPlantCount(): number {
+    return this.scene?.getPlantCount() || 0;
   }
 
   destroy() {

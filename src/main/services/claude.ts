@@ -20,6 +20,7 @@ export interface StreamResult {
 
 export class ClaudeService {
   private apiKey: string | undefined;
+  private systemPrompt: string = SYSTEM_PROMPT;
 
   constructor() {
     this.apiKey = process.env.ANTHROPIC_API_KEY;
@@ -31,6 +32,10 @@ export class ClaudeService {
 
   hasApiKey(): boolean {
     return !!this.apiKey;
+  }
+
+  setSystemPrompt(prompt: string) {
+    this.systemPrompt = prompt;
   }
 
   async streamTask(
@@ -57,7 +62,7 @@ export class ClaudeService {
         const stream = await client.messages.stream({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 4096,
-          system: SYSTEM_PROMPT,
+          system: this.systemPrompt,
           messages: [{ role: 'user', content: prompt }],
         });
 

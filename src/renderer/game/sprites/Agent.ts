@@ -1,10 +1,23 @@
 import Phaser from 'phaser';
+import type { AgentRole } from '../../../shared/types';
 
 export type AgentState = 'idle' | 'walking' | 'working' | 'error';
 
+const HAT_COLORS: Record<AgentRole, number> = {
+  planter: 0x388e3c,  // green
+  weeder: 0xf57c00,   // orange
+  tester: 0x1565c0,   // blue
+};
+
+const MAX_CONTEXT_TOKENS = 200000;
+
 export class Agent {
+  public readonly id: string;
+  public readonly role: AgentRole;
   public x: number;
   public y: number;
+  public homeX: number;
+  public homeY: number;
   private container: Phaser.GameObjects.Container;
   private scene: Phaser.Scene;
   private body: Phaser.GameObjects.Rectangle;
@@ -14,22 +27,32 @@ export class Agent {
   private rightLeg: Phaser.GameObjects.Rectangle;
   private tool: Phaser.GameObjects.Rectangle;
   private stateIndicator: Phaser.GameObjects.Arc;
+  private nameLabel: Phaser.GameObjects.Text;
+  private backpack: Phaser.GameObjects.Rectangle;
+  private backpackFill: Phaser.GameObjects.Rectangle;
   private idleTween: Phaser.Tweens.Tween | null = null;
   private legTween: Phaser.Tweens.Tween | null = null;
   private toolTween: Phaser.Tweens.Tween | null = null;
   private _state: AgentState = 'idle';
+  private _totalTokens = 0;
 
-  // Speech bubble (owned by agent now)
+  // Speech bubble
   private speechBubble: Phaser.GameObjects.Container;
   private speechBg: Phaser.GameObjects.Rectangle;
   private speechText: Phaser.GameObjects.Text;
   private speechTail: Phaser.GameObjects.Triangle;
   private speechFadeTween: Phaser.Tweens.Tween | null = null;
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
+  constructor(scene: Phaser.Scene, x: number, y: number, id: string, role: AgentRole) {
     this.scene = scene;
+    this.id = id;
+    this.role = role;
     this.x = x;
     this.y = y;
+    this.homeX = x;
+    this.homeY = y;
+
+    const hatColor = HAT_COLORS[role];
 
     // Legs
     this.leftLeg = scene.add.rectangle(-4, 16, 5, 10, 0x4e342e);
@@ -42,19 +65,32 @@ export class Agent {
     this.head = scene.add.rectangle(0, -12, 12, 12, 0xffcc80);
 
     // Hat
-    this.hat = scene.add.triangle(0, -22, -10, 4, 10, 4, 0, -6, 0x388e3c);
+    this.hat = scene.add.triangle(0, -22, -10, 4, 10, 4, 0, -6, hatColor);
 
-    // Tool (small shovel, hidden by default)
+    // Tool
     this.tool = scene.add.rectangle(12, 0, 3, 14, 0x8d6e63);
     this.tool.setVisible(false);
 
-    // State indicator dot
+    // State indicator
     this.stateIndicator = scene.add.circle(8, -22, 3, 0x66bb6a);
+
+    // Backpack (context window viz) - on the back
+    this.backpack = scene.add.rectangle(-10, 2, 6, 14, 0x795548).setOrigin(0.5);
+    this.backpackFill = scene.add.rectangle(-10, 9, 4, 0, 0x66bb6a).setOrigin(0.5, 1);
+
+    // Name label
+    this.nameLabel = scene.add.text(0, 24, role, {
+      fontSize: '7px',
+      color: '#c8e6c9',
+      fontFamily: 'monospace',
+    }).setOrigin(0.5, 0);
 
     this.container = scene.add.container(x, y, [
       this.leftLeg, this.rightLeg,
       this.body, this.head, this.hat,
       this.tool, this.stateIndicator,
+      this.backpack, this.backpackFill,
+      this.nameLabel,
     ]);
 
     // Speech bubble
@@ -81,20 +117,27 @@ export class Agent {
     return this._state;
   }
 
+  get totalTokens(): number {
+    return this._totalTokens;
+  }
+
+  setTokens(tokens: number) {
+    this._totalTokens = tokens;
+    this.updateBackpack();
+  }
+
   setState(state: AgentState) {
     if (this._state === state) return;
     this._state = state;
 
-    // Update indicator color
     const colors: Record<AgentState, number> = {
-      idle: 0x66bb6a,     // green
-      walking: 0x42a5f5,  // blue
-      working: 0xffca28,  // yellow
-      error: 0xef5350,    // red
+      idle: 0x66bb6a,
+      walking: 0x42a5f5,
+      working: 0xffca28,
+      error: 0xef5350,
     };
     this.stateIndicator.setFillStyle(colors[state]);
 
-    // Manage animations per state
     switch (state) {
       case 'idle':
         this.stopLegAnimation();
@@ -129,18 +172,30 @@ export class Agent {
     this.x = targetX;
     this.y = targetY;
 
+    const distance = Math.abs(targetX - this.container.x);
+    const duration = Math.max(500, Math.min(distance * 3, 2000));
+
     this.scene.tweens.add({
       targets: this.container,
       x: targetX,
-      duration: 1000,
+      duration,
       ease: 'Quad.easeInOut',
-      onComplete: () => {
-        onComplete?.();
-      },
+      onComplete: () => onComplete?.(),
     });
   }
 
-  // Speech bubble methods
+  walkHome(onComplete?: () => void) {
+    this.walkTo(this.homeX, this.homeY, () => {
+      this.setState('idle');
+      onComplete?.();
+    });
+  }
+
+  getContainerX(): number {
+    return this.container.x;
+  }
+
+  // Speech bubble
   showSpeech(text: string) {
     if (this.speechFadeTween) {
       this.speechFadeTween.stop();
@@ -149,16 +204,13 @@ export class Agent {
     this.speechBubble.setAlpha(1);
     this.speechBubble.setVisible(true);
 
-    // Truncate and clean up display text
     const display = text.length > 50 ? text.slice(-50) : text;
     this.speechText.setText(display);
 
-    // Auto-size background to text
     const textWidth = Math.min(Math.max(this.speechText.width + 20, 60), 220);
     const textHeight = Math.max(this.speechText.height + 12, 24);
     this.speechBg.setSize(textWidth, textHeight);
 
-    // Position bubble above agent
     this.speechBubble.setPosition(this.container.x, this.container.y - 40);
   }
 
@@ -183,6 +235,52 @@ export class Agent {
     }
   }
 
+  // Backpack context visualization
+  private updateBackpack() {
+    const ratio = Math.min(this._totalTokens / MAX_CONTEXT_TOKENS, 1);
+    const maxHeight = 12;
+    const fillHeight = ratio * maxHeight;
+
+    // Color: green -> yellow -> red
+    let color: number;
+    if (ratio < 0.25) color = 0x66bb6a;
+    else if (ratio < 0.5) color = 0xffca28;
+    else if (ratio < 0.75) color = 0xffa726;
+    else color = 0xef5350;
+
+    this.scene.tweens.add({
+      targets: this.backpackFill,
+      height: fillHeight,
+      duration: 300,
+      ease: 'Sine.easeOut',
+    });
+    this.backpackFill.setFillStyle(color);
+  }
+
+  playPruneAnimation() {
+    this._totalTokens = 0;
+    // Particles flying off backpack
+    for (let i = 0; i < 5; i++) {
+      const leaf = this.scene.add.circle(
+        this.container.x - 10,
+        this.container.y + 2,
+        2, 0x66bb6a,
+      );
+      leaf.setDepth(50);
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI;
+      this.scene.tweens.add({
+        targets: leaf,
+        x: leaf.x + Math.cos(angle) * 20,
+        y: leaf.y + Math.sin(angle) * 20,
+        alpha: 0,
+        duration: 600,
+        ease: 'Quad.easeOut',
+        onComplete: () => leaf.destroy(),
+      });
+    }
+    this.updateBackpack();
+  }
+
   // Animations
   private startIdleAnimation() {
     this.stopIdleAnimation();
@@ -205,7 +303,6 @@ export class Agent {
 
   private startLegAnimation() {
     this.stopLegAnimation();
-    // Alternate legs up/down
     this.scene.tweens.add({
       targets: this.leftLeg,
       y: { from: 16, to: 12 },
@@ -234,7 +331,6 @@ export class Agent {
 
   private startToolAnimation() {
     this.stopToolAnimation();
-    // Swing tool
     this.toolTween = this.scene.tweens.add({
       targets: this.tool,
       angle: { from: -20, to: 20 },
@@ -254,7 +350,6 @@ export class Agent {
   }
 
   private playErrorAnimation() {
-    // Flash red and droop
     this.scene.tweens.add({
       targets: this.body,
       fillColor: { from: 0x5d4037, to: 0xb71c1c },
@@ -268,7 +363,6 @@ export class Agent {
         this.stateIndicator.setFillStyle(0x66bb6a);
       },
     });
-    // Droop down
     this.scene.tweens.add({
       targets: this.container,
       y: this.y + 4,

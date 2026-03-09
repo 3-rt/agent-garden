@@ -1,11 +1,40 @@
 import Phaser from 'phaser';
 import { Agent } from '../sprites/Agent';
+import { DayNightCycle } from '../systems/DayNightCycle';
+import { TimeLapse, GardenSnapshot } from '../systems/TimeLapse';
+import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
+import type { AgentRole, PlantState } from '../../../shared/types';
+
+interface ZoneConfig {
+  label: string;
+  x: number;
+  width: number;
+}
+
+const ZONE_LAYOUT: Record<string, { x: number; width: number }> = {
+  frontend: { x: 0,    width: 0.33 },
+  backend:  { x: 0.33, width: 0.34 },
+  tests:    { x: 0.67, width: 0.33 },
+};
 
 export class GardenScene extends Phaser.Scene {
-  private agent!: Agent;
+  private agents = new Map<string, Agent>();
   private plantMap = new Map<string, Phaser.GameObjects.Container>();
-  private nextPlantSlot = 0;
-  private accumulatedText = '';
+  private plantPositions = new Map<string, { x: number; y: number; zone: string }>();
+  private zonePlantSlots = new Map<string, number>();
+  private accumulatedText = new Map<string, string>();
+
+  // Phase 4 systems
+  private dayNight!: DayNightCycle;
+  private timeLapse = new TimeLapse();
+  private themeManager = new ThemeManager();
+  private groundTiles: Phaser.GameObjects.Rectangle[] = [];
+  private pathTiles: Phaser.GameObjects.Rectangle[] = [];
+  private zoneSigns: { bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }[] = [];
+  private dividers: Phaser.GameObjects.Rectangle[] = [];
+  private titleText!: Phaser.GameObjects.Text;
+  private snapshotInterval = 10_000; // snapshot every 10s
+  private lastSnapshotTime = 0;
 
   constructor() {
     super({ key: 'GardenScene' });
@@ -13,82 +42,184 @@ export class GardenScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
+    const theme = this.themeManager.current;
 
-    // Draw ground grid pattern
+    // Draw ground grid
     for (let x = 0; x < width; x += 32) {
       for (let y = 0; y < height; y += 32) {
-        const shade = ((x / 32 + y / 32) % 2 === 0) ? 0x2d5a27 : 0x306b2b;
-        this.add.rectangle(x + 16, y + 16, 32, 32, shade);
+        const isEven = ((x / 32 + y / 32) % 2 === 0);
+        const tile = this.add.rectangle(
+          x + 16, y + 16, 32, 32,
+          isEven ? theme.groundLight : theme.groundDark,
+        );
+        this.groundTiles.push(tile);
       }
     }
 
     // Garden path
     for (let x = 0; x < width; x += 32) {
-      this.add.rectangle(x + 16, height / 2, 32, 32, 0x8b7355);
+      const tile = this.add.rectangle(x + 16, height / 2, 32, 32, theme.pathColor);
+      this.pathTiles.push(tile);
     }
 
-    // Create agent
-    this.agent = new Agent(this, 100, height / 2);
+    // Zone dividers and signs
+    const zones = Object.entries(ZONE_LAYOUT);
+    for (const [key, zone] of zones) {
+      const zoneX = zone.x * width;
+      const zoneW = zone.width * width;
+      this.zonePlantSlots.set(key, 0);
+
+      // Zone sign
+      const signX = zoneX + zoneW / 2;
+      const signColor = theme.signColors[key] || 0x555555;
+      const signBg = this.add.rectangle(signX, 14, 70, 18, signColor, 0.3).setDepth(10);
+      const signText = this.add.text(signX, 14, this.zoneLabel(key), {
+        fontSize: '10px',
+        color: theme.labelColor,
+        fontFamily: 'monospace',
+      }).setOrigin(0.5).setDepth(11);
+      this.zoneSigns.push({ bg: signBg, text: signText });
+
+      // Zone divider lines (skip first zone)
+      if (zone.x > 0) {
+        const divX = zoneX;
+        for (let y = 0; y < height; y += 8) {
+          const div = this.add.rectangle(divX, y + 4, 2, 4, theme.dividerColor, 0.5);
+          this.dividers.push(div);
+        }
+      }
+    }
 
     // Title
-    this.add.text(width / 2, 20, 'Agent Garden', {
-      fontSize: '20px',
-      color: '#c8e6c9',
+    this.titleText = this.add.text(width / 2, height - 12, 'Agent Garden', {
+      fontSize: '10px',
+      color: theme.titleColor,
       fontFamily: 'monospace',
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setDepth(20);
+
+    // Create 3 agents
+    const agentDefs: { id: string; role: AgentRole; homeX: number }[] = [
+      { id: 'agent-planter', role: 'planter', homeX: width * 0.17 },
+      { id: 'agent-weeder',  role: 'weeder',  homeX: width * 0.5 },
+      { id: 'agent-tester',  role: 'tester',  homeX: width * 0.83 },
+    ];
+
+    for (const def of agentDefs) {
+      const agent = new Agent(this, def.homeX, height / 2, def.id, def.role);
+      this.agents.set(def.id, agent);
+      this.accumulatedText.set(def.id, '');
+    }
+
+    // Day/Night cycle
+    this.dayNight = new DayNightCycle(this);
+
+    // Theme change listener
+    this.themeManager.onChange((t) => this.applyTheme(t));
   }
 
-  startTask() {
+  update(_time: number, delta: number) {
+    // Update day/night cycle
+    this.dayNight.update(delta);
+
+    // Time-lapse snapshots
+    this.lastSnapshotTime += delta;
+    if (this.lastSnapshotTime >= this.snapshotInterval) {
+      this.lastSnapshotTime = 0;
+      this.captureSnapshot();
+    }
+  }
+
+  // --- Public API ---
+
+  startTask(agentId: string) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
     const { width, height } = this.scale;
-    const targetX = 200 + Math.random() * (width - 400);
-    this.accumulatedText = '';
+    const zone = this.roleToZone(agent.role);
+    const layout = ZONE_LAYOUT[zone];
+    const zoneStart = layout.x * width;
+    const zoneEnd = (layout.x + layout.width) * width;
+    const targetX = zoneStart + 40 + Math.random() * (zoneEnd - zoneStart - 80);
 
-    this.agent.walkTo(targetX, height / 2, () => {
-      this.agent.setState('working');
+    this.accumulatedText.set(agentId, '');
+    agent.walkTo(targetX, height / 2, () => {
+      agent.setState('working');
     });
-    this.agent.showSpeechStatic('Thinking...');
+    agent.showSpeechStatic('Thinking...');
   }
 
-  showThought(text: string) {
-    this.accumulatedText += text;
-    // Extract meaningful snippet: look for function/class names or show tail
-    const display = this.extractSnippet(this.accumulatedText);
-    this.agent.showSpeech(display);
+  showThought(agentId: string, text: string) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
+    const accumulated = (this.accumulatedText.get(agentId) || '') + text;
+    this.accumulatedText.set(agentId, accumulated);
+    agent.showSpeech(this.extractSnippet(accumulated));
   }
 
-  completeTask() {
-    this.agent.showSpeechStatic('Done!');
-    this.time.delayedCall(1500, () => {
-      this.agent.hideSpeech(true);
-    });
-    this.agent.walkTo(100, this.scale.height / 2, () => {
-      this.agent.setState('idle');
+  completeTask(agentId: string) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
+    agent.showSpeechStatic('Done!');
+    this.time.delayedCall(1500, () => agent.hideSpeech(true));
+    agent.walkHome(() => agent.setState('idle'));
+
+    // Sunshine weather on completion
+    this.dayNight.setWeather('sunshine');
+    this.time.delayedCall(5000, () => {
+      if (this.dayNight.weather === 'sunshine') {
+        this.dayNight.setWeather('clear');
+      }
     });
   }
 
-  showError() {
-    this.agent.setState('error');
-    this.agent.showSpeechStatic('Error!');
+  showError(agentId: string) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
+    agent.setState('error');
+    agent.showSpeechStatic('Error!');
     this.time.delayedCall(3000, () => {
-      this.agent.hideSpeech(true);
+      agent.hideSpeech(true);
+      agent.walkHome();
     });
+
+    // Rain on error
+    this.dayNight.setWeather('rain');
+    this.time.delayedCall(8000, () => {
+      if (this.dayNight.weather === 'rain') {
+        this.dayNight.setWeather('clear');
+      }
+    });
+  }
+
+  updateAgentTokens(agentId: string, tokens: number) {
+    this.agents.get(agentId)?.setTokens(tokens);
   }
 
   onFileCreated(filename: string) {
     if (this.plantMap.has(filename)) return;
 
+    const zone = this.fileToZone(filename);
     const { width, height } = this.scale;
-    const x = this.getPlantX(width);
-    const above = this.nextPlantSlot % 2 === 0;
+    const layout = ZONE_LAYOUT[zone];
+    const zoneStart = layout.x * width;
+    const zoneW = layout.width * width;
+
+    const slot = this.zonePlantSlots.get(zone) || 0;
+    this.zonePlantSlots.set(zone, slot + 1);
+
+    const x = this.getPlantX(zoneStart + 30, zoneW - 60, slot);
+    const above = slot % 2 === 0;
     const y = above
       ? height / 2 - 60 - Math.random() * 40
       : height / 2 + 60 + Math.random() * 40;
-    this.nextPlantSlot++;
 
     const plant = this.growPlant(x, y, filename);
     this.plantMap.set(filename, plant);
-
-    // Particle burst
+    this.plantPositions.set(filename, { x, y, zone });
     this.emitParticles(x, y);
   }
 
@@ -104,23 +235,157 @@ export class GardenScene extends Phaser.Scene {
       yoyo: true,
       ease: 'Sine.easeInOut',
     });
-
-    // Small shimmer particles
     this.emitParticles(plant.x, plant.y, 3);
   }
 
+  // --- Theme ---
+
+  setTheme(themeId: string) {
+    this.themeManager.setTheme(themeId);
+  }
+
+  getThemeId(): string {
+    return this.themeManager.themeId;
+  }
+
+  private applyTheme(theme: GardenTheme) {
+    // Update ground tiles
+    let i = 0;
+    const { width, height } = this.scale;
+    for (let x = 0; x < width; x += 32) {
+      for (let y = 0; y < height; y += 32) {
+        if (i < this.groundTiles.length) {
+          const isEven = ((x / 32 + y / 32) % 2 === 0);
+          this.groundTiles[i].setFillStyle(isEven ? theme.groundLight : theme.groundDark);
+          i++;
+        }
+      }
+    }
+
+    // Path
+    for (const tile of this.pathTiles) {
+      tile.setFillStyle(theme.pathColor);
+    }
+
+    // Signs
+    const zoneKeys = Object.keys(ZONE_LAYOUT);
+    for (let j = 0; j < this.zoneSigns.length; j++) {
+      const key = zoneKeys[j];
+      const signColor = theme.signColors[key] || 0x555555;
+      this.zoneSigns[j].bg.setFillStyle(signColor, 0.3);
+      this.zoneSigns[j].text.setColor(theme.labelColor);
+    }
+
+    // Dividers
+    for (const div of this.dividers) {
+      div.setFillStyle(theme.dividerColor, 0.5);
+    }
+
+    // Title
+    this.titleText.setColor(theme.titleColor);
+
+    // Update game background
+    this.cameras.main.setBackgroundColor(theme.backgroundColor);
+  }
+
+  // --- Persistence ---
+
+  getPlantStates(): PlantState[] {
+    const plants: PlantState[] = [];
+    for (const [filename, pos] of this.plantPositions) {
+      plants.push({
+        filename,
+        x: pos.x,
+        y: pos.y,
+        zone: pos.zone,
+        createdAt: Date.now(),
+      });
+    }
+    return plants;
+  }
+
+  restorePlants(plants: PlantState[]) {
+    for (const p of plants) {
+      if (this.plantMap.has(p.filename)) continue;
+      const container = this.growPlant(p.x, p.y, p.filename);
+      this.plantMap.set(p.filename, container);
+      this.plantPositions.set(p.filename, { x: p.x, y: p.y, zone: p.zone });
+
+      // Update zone slot count
+      const current = this.zonePlantSlots.get(p.zone) || 0;
+      this.zonePlantSlots.set(p.zone, current + 1);
+    }
+  }
+
+  getPlantCount(): number {
+    return this.plantMap.size;
+  }
+
+  // --- Time-Lapse ---
+
+  getTimeLapse(): TimeLapse {
+    return this.timeLapse;
+  }
+
+  private captureSnapshot() {
+    const plants: GardenSnapshot['plants'] = [];
+    for (const [filename, pos] of this.plantPositions) {
+      plants.push({ filename, x: pos.x, y: pos.y, zone: pos.zone });
+    }
+
+    const agents: GardenSnapshot['agents'] = [];
+    for (const [id, agent] of this.agents) {
+      agents.push({
+        id,
+        role: agent.role,
+        state: agent.state,
+        x: agent.getContainerX(),
+        totalTokens: agent.totalTokens,
+      });
+    }
+
+    this.timeLapse.addSnapshot({
+      timestamp: Date.now(),
+      plants,
+      agents,
+      stats: {
+        filesCreated: this.plantMap.size,
+        tasksCompleted: 0,
+        tokensUsed: 0,
+      },
+    });
+  }
+
+  // --- Private helpers ---
+
+  private roleToZone(role: AgentRole): string {
+    switch (role) {
+      case 'planter': return 'frontend';
+      case 'weeder':  return 'backend';
+      case 'tester':  return 'tests';
+    }
+  }
+
+  private fileToZone(filename: string): string {
+    const lower = filename.toLowerCase();
+    if (lower.includes('.test.') || lower.includes('.spec.') || lower.includes('test')) return 'tests';
+    if (lower.includes('.tsx') || lower.includes('.css') || lower.includes('component')) return 'frontend';
+    return 'backend';
+  }
+
+  private zoneLabel(key: string): string {
+    return key.charAt(0).toUpperCase() + key.slice(1);
+  }
+
   private extractSnippet(text: string): string {
-    // Try to find a function or class name
     const funcMatch = text.match(/(?:function|const|class|export)\s+(\w+)/);
     if (funcMatch) return funcMatch[0].slice(0, 50);
 
-    // Try to find a comment
     const commentMatch = text.match(/\/\/\s*(.+)/);
     if (commentMatch && !commentMatch[1].startsWith('@file')) {
       return commentMatch[1].slice(0, 50);
     }
 
-    // Fall back to tail of text
     const clean = text.replace(/\n/g, ' ').trim();
     return clean.length > 50 ? clean.slice(-50) : clean;
   }
@@ -146,13 +411,10 @@ export class GardenScene extends Phaser.Scene {
     }
   }
 
-  private getPlantX(width: number): number {
-    const margin = 80;
-    const usable = width - margin * 2;
-    const slot = this.nextPlantSlot;
+  private getPlantX(zoneStart: number, zoneWidth: number, slot: number): number {
     const golden = 0.618033988749895;
     const normalized = ((slot * golden) % 1);
-    return margin + normalized * usable;
+    return zoneStart + normalized * zoneWidth;
   }
 
   private growPlant(x: number, y: number, filename: string): Phaser.GameObjects.Container {
@@ -181,7 +443,6 @@ export class GardenScene extends Phaser.Scene {
       } else if (topShape === 'triangle') {
         top = this.add.triangle(0, -targetHeight - 4, -8, 8, 8, 8, 0, -4, topColor);
       } else if (topShape === 'dome') {
-        // Mushroom dome
         top = this.add.ellipse(0, -targetHeight, 14, 8, topColor);
       } else {
         top = this.add.rectangle(0, -targetHeight, 12, 8, topColor);

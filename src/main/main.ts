@@ -1,16 +1,15 @@
 import { app, BrowserWindow, ipcMain, dialog, safeStorage } from 'electron';
 import * as path from 'path';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { ClaudeService, ClaudeApiError } from './services/claude';
+import { ClaudeApiError } from './services/claude';
+import { AgentPool } from './services/agent-pool';
 import { FileWatcher } from './services/watcher';
+import { PersistenceService } from './services/persistence';
 
 let mainWindow: BrowserWindow | null = null;
-const claude = new ClaudeService();
+const pool = new AgentPool();
 const watcher = new FileWatcher();
-
-// Task queue
-const taskQueue: { id: string; prompt: string }[] = [];
-let isProcessing = false;
+let persistence: PersistenceService;
 
 // Config persistence
 const configPath = path.join(app.getPath('userData'), 'agent-garden-config.json');
@@ -18,6 +17,7 @@ const configPath = path.join(app.getPath('userData'), 'agent-garden-config.json'
 interface AppConfig {
   watchDirectory: string;
   encryptedApiKey?: string;
+  theme?: string;
 }
 
 function loadConfig(): AppConfig {
@@ -61,47 +61,55 @@ function startWatcher(directory: string) {
 }
 
 async function processTask(taskId: string, prompt: string) {
-  isProcessing = true;
-  mainWindow?.webContents.send('task:status', { taskId, status: 'in-progress' });
+  const { role } = pool.routeTask(prompt);
+  const agentId = `agent-${role}`;
+
+  mainWindow?.webContents.send('task:status', { taskId, agentId, status: 'in-progress' });
 
   try {
-    const result = await claude.streamTask(prompt, (text, done) => {
-      mainWindow?.webContents.send('agent:stream', { taskId, text, done });
+    const { result } = await pool.submitTask(prompt, (aid, text, done) => {
+      mainWindow?.webContents.send('agent:stream', { taskId, agentId: aid, text, done });
     });
 
     // Save generated file
     if (result.filename) {
       const dir = watcher.getDirectory();
-      const filePath = await claude.saveToFile(dir, result.filename, result.content);
+      const { ClaudeService } = require('./services/claude');
+      const saver = new ClaudeService();
+      const filePath = await saver.saveToFile(dir, result.filename, result.content);
       mainWindow?.webContents.send('file:saved', {
         taskId,
+        agentId,
         filename: result.filename,
         path: filePath,
       });
+      persistence.recordFileCreated();
     }
 
-    mainWindow?.webContents.send('task:status', { taskId, status: 'complete' });
+    // Track stats
+    const tokenEstimate = Math.ceil((prompt.length + (result.content?.length || 0)) / 4);
+    persistence.recordTokens(tokenEstimate);
+    persistence.recordTaskCompleted();
+
+    // Send updated agent info and stats
+    mainWindow?.webContents.send('agents:updated', pool.getAgentInfo());
+    mainWindow?.webContents.send('stats:updated', persistence.getStats());
+    mainWindow?.webContents.send('task:status', { taskId, agentId, status: 'complete' });
   } catch (err: any) {
     const message = err instanceof ClaudeApiError ? err.message : `${err}`;
-    const type = err instanceof ClaudeApiError ? err.type : 'unknown';
+
+    persistence.recordTaskFailed();
+    mainWindow?.webContents.send('stats:updated', persistence.getStats());
 
     mainWindow?.webContents.send('agent:stream', {
       taskId,
+      agentId,
       text: `Error: ${message}`,
       done: true,
     });
-    mainWindow?.webContents.send('agent:error', { taskId, message, type });
-    mainWindow?.webContents.send('task:status', { taskId, status: 'error' });
+    mainWindow?.webContents.send('agent:error', { taskId, agentId, message });
+    mainWindow?.webContents.send('task:status', { taskId, agentId, status: 'error' });
   }
-
-  isProcessing = false;
-  processNextTask();
-}
-
-function processNextTask() {
-  if (isProcessing || taskQueue.length === 0) return;
-  const next = taskQueue.shift()!;
-  processTask(next.id, next.prompt);
 }
 
 function createWindow() {
@@ -120,12 +128,15 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Initialize persistence
+  persistence = new PersistenceService(app.getPath('userData'));
+
   createWindow();
 
   // Load persisted API key
   const storedKey = loadApiKey();
   if (storedKey) {
-    claude.setApiKey(storedKey);
+    pool.setApiKey(storedKey);
   }
 
   // Start file watcher with persisted directory
@@ -135,19 +146,10 @@ app.whenReady().then(() => {
     mainWindow?.webContents.send('directory:changed', config.watchDirectory);
   });
 
-  // Task submission with queue
+  // Task submission
   ipcMain.on('task:submit', (_event, prompt: string) => {
     const taskId = Date.now().toString();
-    if (isProcessing) {
-      taskQueue.push({ id: taskId, prompt });
-      mainWindow?.webContents.send('task:status', {
-        taskId,
-        status: 'queued',
-        queueLength: taskQueue.length,
-      });
-    } else {
-      processTask(taskId, prompt);
-    }
+    processTask(taskId, prompt);
   });
 
   // Directory picker
@@ -165,7 +167,6 @@ app.whenReady().then(() => {
     return dir;
   });
 
-  // Manual directory change
   ipcMain.on('watcher:set-directory', (_event, directory: string) => {
     startWatcher(directory);
     saveConfig({ watchDirectory: directory });
@@ -173,13 +174,47 @@ app.whenReady().then(() => {
 
   // API key management
   ipcMain.on('api-key:set', (_event, key: string) => {
-    claude.setApiKey(key);
+    pool.setApiKey(key);
     saveApiKey(key);
   });
 
   ipcMain.handle('api-key:has', () => {
-    return claude.hasApiKey();
+    return pool.hasApiKey();
   });
+
+  // Agent info
+  ipcMain.handle('agents:info', () => {
+    return pool.getAgentInfo();
+  });
+
+  // Reset token count
+  ipcMain.on('agent:reset-tokens', (_event, agentId: string) => {
+    pool.resetTokens(agentId);
+    mainWindow?.webContents.send('agents:updated', pool.getAgentInfo());
+  });
+
+  // Garden persistence
+  ipcMain.handle('garden:load', () => {
+    return persistence.loadState();
+  });
+
+  ipcMain.on('garden:save', (_event, plants, theme) => {
+    persistence.saveState(plants, theme);
+  });
+
+  ipcMain.handle('garden:stats', () => {
+    return persistence.getStats();
+  });
+
+  // Theme persistence
+  ipcMain.on('garden:set-theme', (_event, themeId: string) => {
+    saveConfig({ theme: themeId });
+  });
+
+  // Auto-save garden state periodically
+  setInterval(() => {
+    mainWindow?.webContents.send('garden:request-save');
+  }, 30_000);
 });
 
 app.on('window-all-closed', () => {
