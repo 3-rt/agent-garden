@@ -11,17 +11,17 @@
 │  │                            │            │                       │ │
 │  │  main.ts                   │            │  React UI             │ │
 │  │    ├ IPC handlers          │            │    ├ App.tsx          │ │
-│  │    ├ auto-save timer       │            │    ├ TaskInput        │ │
-│  │    └ stats tracking        │            │    ├ OutputPanel      │ │
-│  │                            │            │    ├ StatsPanel       │ │
-│  │  services/                 │            │    ├ AgentPanel       │ │
-│  │    ├ HeadGardener          │            │    ├ ThemePicker      │ │
-│  │    │  (orchestrator)       │            │    └ SetupWizard      │ │
+│  │    ├ auto-save timer       │            │    ├ DirectoryPicker  │ │
+│  │    └ stats tracking        │            │    ├ StatsPanel       │ │
+│  │                            │            │    ├ ThemePicker      │ │
+│  │  services/                 │            │    └ Goal input bar   │ │
+│  │    ├ HeadGardener          │            │                       │ │
+│  │    │  (orchestrator)       │            │                       │ │
 │  │    ├ ClaudeCodeManager     │            │                       │ │
-│  │    │  ├ spawn agents       │            │  Phaser Game          │ │
-│  │    │  ├ detect sessions    │            │    ├ GardenScene      │ │
-│  │    │  └ lifecycle mgmt     │            │    ├ Agent sprites    │ │
-│  │    ├ HookServer (HTTP)     │            │    ├ DayNightCycle    │ │
+│  │    │  └ spawn/stop agents  │            │  Phaser Game          │ │
+│  │    ├ ClaudeCodeTracker     │            │    ├ GardenScene      │ │
+│  │    ├ HookServer (HTTP)     │            │    ├ Agent sprites    │ │
+│  │    ├ ProcessScanner        │            │    ├ DayNightCycle    │ │
 │  │    ├ TaskRouter            │            │    ├ ThemeManager     │ │
 │  │    ├ FileWatcher           │            │    └ TimeLapse        │ │
 │  │    └ PersistenceService    │            │                       │ │
@@ -59,14 +59,14 @@ Claude Code CLI (user's terminal)
 
 ### Agent Spawning (Orchestrated Sessions)
 ```
-User submits goal → TaskInput → IPC 'task:submit'
-  → HeadGardener: breaks goal into subtasks
-  → TaskRouter: assigns subtask to role
-  → ClaudeCodeManager: spawns `claude` child process with task prompt
+User submits goal → Goal input bar → IPC 'head-gardener:submit-goal'
+  → HeadGardener: decomposes goal into subtasks (splits on "and"/"with"/"then")
+  → TaskRouter: assigns each subtask to a role
+  → ClaudeCodeManager: spawns `claude --print <prompt>` child process per subtask
   → Agent sprite appears in garden, walks to work zone
-  → Hook events stream back activity in real-time
+  → stdout streamed to speech bubbles in real-time
   → FileWatcher detects file changes → plants grow
-  → On complete: agent walks home, sunshine weather
+  → On exit: subtask marked complete/error, agent walks home, sunshine weather
 ```
 
 ### Head Gardener Orchestration
@@ -107,24 +107,30 @@ No centralized store. State distributed across three layers:
 
 | Direction | Event | Payload |
 |-----------|-------|---------|
-| Renderer → Main | `task:submit` | `{ prompt }` |
-| Renderer → Main | `agent:spawn` | `{ role, directory?, prompt? }` |
-| Renderer → Main | `agent:stop` | `{ agentId }` |
-| Renderer → Main | `agent:set-role` | `{ agentId, role }` |
-| Renderer → Main | `agent:open-terminal` | `{ agentId }` |
-| Renderer → Main | `watcher:set-directory` | `{ path }` |
-| Renderer → Main | `garden:save` | `{ plants, theme }` |
-| Renderer → Main | `hooks:configure` | (auto-configure Claude Code hooks) |
-| Main → Renderer | `cc-agent:connected` | `{ agentId, sessionId, directory }` |
-| Main → Renderer | `cc-agent:activity` | `{ agentId, event, tool?, file? }` |
+| Renderer → Main | `head-gardener:submit-goal` | `goal: string` |
+| Renderer → Main | `head-gardener:get-plans` | (returns `OrchestrationPlan[]`) |
+| Renderer → Main | `cc-agent:spawn` | `role, prompt?, directory?` |
+| Renderer → Main | `cc-agent:stop` | `sessionId` |
+| Renderer → Main | `cc-agent:set-role` | `sessionId, role` |
+| Renderer → Main | `cc-agent:open-terminal` | `sessionId` |
+| Renderer → Main | `cc-agent:detect-claude` | (returns `boolean`) |
+| Renderer → Main | `cc-agents:list` | (returns `CCAgentSession[]`) |
+| Renderer → Main | `dialog:select-directory` | (opens native dialog) |
+| Renderer → Main | `garden:save` | `plants, theme` |
+| Renderer → Main | `garden:set-theme` | `themeId` |
+| Main → Renderer | `cc-agent:connected` | `CCAgentSession` |
+| Main → Renderer | `cc-agent:activity` | `{ agentId, event, tool?, file?, prompt? }` |
 | Main → Renderer | `cc-agent:disconnected` | `{ agentId, reason }` |
-| Main → Renderer | `cc-agent:spawned` | `{ agentId, role, prompt }` |
-| Main → Renderer | `task:status` | `{ agentId, status, subtasks? }` |
+| Main → Renderer | `cc-agent:spawned` | `{ agentId, sessionId, role, directory, prompt? }` |
+| Main → Renderer | `cc-agent:output` | `{ agentId, sessionId, text }` |
+| Main → Renderer | `cc-agent:exited` | `{ agentId, sessionId, code }` |
+| Main → Renderer | `head-gardener:plan-created` | `OrchestrationPlan` |
+| Main → Renderer | `head-gardener:subtask-updated` | `{ planId, subtask }` |
+| Main → Renderer | `head-gardener:plan-completed` | `OrchestrationPlan` |
 | Main → Renderer | `file:event` | `{ type, path }` |
-| Main → Renderer | `agent:error` | `{ agentId, message, type }` |
-| Main → Renderer | `agents:updated` | `AgentInfo[]` |
+| Main → Renderer | `directory:changed` | `dir: string` |
 | Main → Renderer | `stats:updated` | `GardenStats` |
-| Main → Renderer | `garden:save-request` | (trigger auto-save) |
+| Main → Renderer | `garden:request-save` | (trigger auto-save) |
 
 ## Claude Code Integration
 
@@ -152,6 +158,6 @@ ClaudeCodeManager.spawn(role, prompt, directory?):
 ```
 
 ### Process Scanning (supplemental)
-- Periodic `ps` scan (every 10s) detects `claude` processes
+- Periodic `ps` scan (every 5s) detects `claude` processes
 - Cross-references with hook data
 - Shows unhooked sessions as "detected (no hooks)" with limited visualization

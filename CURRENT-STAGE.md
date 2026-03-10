@@ -51,7 +51,7 @@ Two-process Electron model:
   Code #1  Code #N  (watched directory)
 ```
 
-Communication: renderer sends commands (`task:submit`, `agent:spawn`, `agent:set-role`), main manages Claude Code sessions and streams results back via IPC events.
+Communication: renderer sends commands (`head-gardener:submit-goal`, `cc-agent:spawn`, `cc-agent:stop`), main manages Claude Code sessions and streams results back via IPC events.
 
 ## File Structure
 
@@ -63,27 +63,30 @@ src/
     services/
       head-gardener.ts         # Orchestrator: decomposes goals, delegates to agents
       claude-code-manager.ts   # Spawns/stops Claude Code child processes
-      claude-code-tracker.ts   # Tracks active sessions (hook data + process scanning)
+      claude-code-tracker.ts   # Tracks active sessions (hook, process, spawned sources)
       hook-server.ts           # HTTP server on :7890, receives Claude Code hook POSTs
+      process-scanner.ts       # ps scan every 5s to detect claude CLI processes
       task-router.ts           # Routes subtasks to roles by keyword/intent
+      claude.ts                # (legacy) Direct Claude API service, used only by tests
+      agent-pool.ts            # (legacy) API-based agent pool, used only by tests
       watcher.ts               # fs.watch with 200ms debounce, creates dir if missing
       persistence.ts           # Save/load garden state (plants, stats, theme) to JSON
   renderer/
     index.html                 # HTML shell with CSP (includes 'unsafe-eval' for Phaser)
     index.tsx                  # React DOM entry
-    App.tsx                    # Root component — IPC listeners, game bridge, state
+    App.tsx                    # Root component — CC agent events, goal input, game bridge
+    assets/sprites/            # Pixel art spritesheets (Overworld, character, objects, etc.)
     components/
-      TaskInput.tsx            # Text input for high-level goals
-      AgentPanel.tsx           # Agent management: list, roles, spawn, stop
       DirectoryPicker.tsx      # Shows/changes watched directory
-      OutputPanel.tsx          # Collapsible code output + history
-      SetupWizard.tsx          # First-run Claude Code hook configuration
-      StatsPanel.tsx           # Bottom bar: agents, plants, tasks, uptime
+      StatsPanel.tsx           # Bottom bar: plants, tasks, uptime
       ThemePicker.tsx          # Theme dropdown (5 themes)
+      OutputPanel.tsx          # (legacy) Collapsible code output + history
+      TaskInput.tsx            # (legacy) Text input for old API mode
+      ApiKeyModal.tsx          # (legacy) API key entry modal
     game/
       GardenGame.ts            # Phaser game wrapper (React <-> Phaser bridge)
       scenes/
-        GardenScene.ts         # Main scene: ground grid, path, zones, agents, plants
+        GardenScene.ts         # Main scene: colored rect ground/path, zones, agents, plants
       sprites/
         Agent.ts               # Pixel-art agent: body, hat, legs, arms, backpack, speech bubble
       systems/
@@ -91,7 +94,7 @@ src/
         ThemeManager.ts        # 5 themes with listener pattern for live switching
         TimeLapse.ts           # Snapshots every 10s, max 200, export/import JSON
   shared/
-    types.ts                   # All shared interfaces
+    types.ts                   # All shared interfaces (includes CC agent + orchestration types)
 ```
 
 ## Implementation Status
@@ -101,24 +104,24 @@ Built the visual garden, sprite system, animations, and rendering pipeline:
 - FileWatcher detects file changes → plants grow in garden (file→plant mapping)
 - Agent sprites with walk/work animations, state machine, speech bubbles
 - Plant variety by file extension, particle effects
-- Garden zones (Frontend/Backend/Tests) with signs and dividers
+- Garden zones (Frontend/Backend/Tests)
 - Day/night cycle, weather (rain on errors, sunshine on success)
 - 5 themes (Garden, Desert, Zen, Underwater, Space)
 - Time-lapse snapshots, persistence, stats panel
+- Ground rendering uses theme-colored rectangles (alternating light/dark) with dirt path
 
-*Note: Phases 1–4 used built-in API agents as placeholders. Phase 5 replaces them with real Claude Code sessions.*
+*Note: Phases 1–4 originally used built-in API agents. Phase 5 replaced them with real Claude Code sessions. The legacy API services (`claude.ts`, `agent-pool.ts`) are no longer wired into the app but remain for test coverage.*
 
-### Phase 5 — Head Gardener (Claude Code Orchestration) 🔲
-Current focus. Transforms the app into a Claude Code orchestrator:
+### Phase 5 — Head Gardener (Claude Code Orchestration)
 
-- **5a: Hook Listener Server** — HTTP server on :7890 receives Claude Code hook events (SessionStart, PreToolUse, PostToolUse, Stop, etc.)
-- **5b: Process Scanning** — Supplemental `ps` scanning to detect Claude Code processes without hooks
-- **5c: Agent Sprites & Roles** — Each Claude Code session gets a gardener sprite; user assigns roles (planter/weeder/tester)
-- **5d: Spawning & Lifecycle** — Spawn headless Claude Code agents from the UI, "open in terminal" to attach
-- **5e: Head Gardener (Orchestrator)** — Decomposes high-level goals into subtasks, delegates to available agents by role
-- **5f: Directory Management** — Shared default directory with per-agent overrides
-- **5g: Garden Integration** — Plants, stats, weather all driven by real Claude Code activity
-- **5h: Setup UX** — Wizard to auto-configure Claude Code hooks, agent management panel
+- **5a: Hook Listener Server** ✅ — HTTP server on :7890 receives all 7 Claude Code hook event types
+- **5b: Process Scanning** ✅ — `ps` scan every 5s detects claude processes, excludes VS Code/shell wrappers
+- **5c: Agent Sprites & Roles** ✅ — Dynamic sprites per session, role-based colors/zones, hook-driven animations
+- **5d: Spawning & Lifecycle** ✅ — Spawn headless agents, term/stop buttons, SIGTERM+SIGKILL cleanup
+- **5e: Head Gardener (Orchestrator)** ✅ — Goal decomposition, task routing, plan tracking, UI with subtask chips
+- **5f: Directory Management** 🔲 — Shared default directory with per-agent overrides
+- **5g: Garden Integration** 🔲 — Plants, stats, weather all driven by real Claude Code activity
+- **5h: Setup UX** 🔲 — Wizard to auto-configure Claude Code hooks
 
 ## Key Technical Details
 
@@ -134,9 +137,10 @@ The app runs an HTTP server on port 7890. Claude Code hooks are configured in `~
 - `Stop` → agent completes, walks home
 - `SessionEnd` → agent sprite removed
 
-### Spawned vs. Detected Agents
-- **Spawned**: launched by the app as child processes, full control (stop, restart, role pre-assigned)
-- **Detected**: externally-started sessions discovered via hooks or `ps`, observe-only until hooks configured
+### Agent Sources
+- **Spawned** (`source: 'spawned'`): launched by the app as child processes, full control (stop, open terminal, role pre-assigned)
+- **Hooks** (`source: 'hooks'`): externally-started sessions discovered via hook events, real-time activity tracking
+- **Process** (`source: 'process'`): detected via `ps` scanning, limited visibility (no hook data), deduplicates against hook sessions
 
 ### State Management
 No centralized store. State is distributed:
@@ -162,5 +166,5 @@ Requires [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) insta
 ## Tests
 
 ```bash
-node test-all.js    # 172 tests covering phases 1–4
+node test-all.js    # 172 tests (all passing)
 ```

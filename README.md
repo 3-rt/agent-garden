@@ -35,7 +35,7 @@ npm start          # Build and launch
 npm run dev        # Watch mode (then: npx electron . in another terminal)
 ```
 
-On first launch, the app will guide you through connecting Claude Code hooks.
+The app auto-detects running Claude Code sessions via hooks and process scanning. To enable hook integration, configure your `~/.claude/settings.json` to POST events to `http://localhost:7890/hooks/<EventType>`.
 
 ## Testing
 

@@ -34,71 +34,66 @@ Phases 1–4 built the visual garden foundation. Phase 5 transforms the app from
 - Persistence: auto-save every 30s + on quit (plants, theme, stats)
 - Stats panel: files, tasks, tokens, uptime, health score
 
-## Phase 5: Head Gardener — Claude Code Orchestration 🔲
+## Phase 5: Head Gardener — Claude Code Orchestration
 
 Replace the built-in API agents with real Claude Code CLI sessions. The app becomes the **Head Gardener**: an orchestrator that detects, spawns, assigns roles to, coordinates, and monitors Claude Code agents. Every gardener in the garden is a real Claude Code session.
 
-### 5a: Hook Listener Server
-- Run a lightweight HTTP server (port 7890) inside the Electron main process
-- Accept POST requests from Claude Code hooks: `SessionStart`, `SessionEnd`, `Stop`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Notification`
-- Parse hook payloads to extract session ID, working directory, tool names, and timestamps
-- Track active sessions in a `ClaudeCodeTracker` service (map of sessionId → session state)
-- Auto-expire stale sessions after configurable timeout (default 5 min no activity)
+### 5a: Hook Listener Server ✅
+- HTTP server (port 7890) in Electron main process receives Claude Code hook events
+- Handles all 7 event types: `SessionStart`, `SessionEnd`, `Stop`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Notification`
+- Parses payloads with flexible field naming (session_id/sessionId, cwd/directory, etc.)
+- `ClaudeCodeTracker` maintains map of sessionId → session state
+- Auto-expires stale sessions after 5 min of inactivity (checked every 30s)
+- 1MB max payload guard, binds to 127.0.0.1 only
 
-### 5b: Process Scanning (Supplemental)
-- Periodic `ps` scan (every 10s) to detect `claude` processes
-- Cross-reference with hook data — if a process exists but no hooks received, show as "detected (no hooks)"
-- Extract working directory from process args if possible
+### 5b: Process Scanning (Supplemental) ✅
+- `ps -eo pid,args` every 5 seconds to detect running `claude` CLI processes
+- Excludes VS Code extension processes, shell wrappers, and agent-garden's own processes
+- Extracts working directory from `--cwd`/`--directory`/`-C` flags or path-like arguments
+- Emits `detected` / `exited` events, cross-referenced with hook data in tracker
+- Deduplicates against hook sessions by matching directory
 
-### 5c: Agent Sprites & Role Assignment
-- Each detected/spawned Claude Code session gets its own pixel-art gardener sprite
-- User can designate each agent a role: planter (green hat), weeder (orange hat), tester (blue hat)
-- Unassigned agents get a default purple hat until a role is set
-- Agents appear in the garden zone matching their role (Frontend/Backend/Tests)
-- Speech bubble shows real-time activity from hooks (e.g., "Editing src/App.tsx", "Running tests")
-- Walking animation on `PreToolUse`, working animation during tool execution, idle when waiting
-- Agent label shows session directory basename + role (e.g., "my-app / planter")
-- Dynamic agent count — sprites appear/disappear as sessions start and end
+### 5c: Agent Sprites & Role Assignment ✅
+- Each detected/spawned session gets a dynamic gardener sprite via `addAgent()`
+- Roles: planter (green hat), weeder (orange hat), tester (blue hat), unassigned (purple hat)
+- Agents positioned in zone matching role (Frontend/Backend/Tests)
+- `showActivity()` maps hook events to animations: walking, working, speech bubbles
+- Agent labels show directory basename; sprites appear/disappear dynamically
+- Status bar shows all agents with role color, status dot, source label (hook/ps/spawned)
 
-### 5d: Spawning & Lifecycle
-- App can spawn new Claude Code sessions as headless child processes
-- User clicks "Spawn Agent" → picks role + optional prompt + optional directory
-- Output captured internally, streamed to garden UI via speech bubbles + output panel
-- "Open in terminal" button on any spawned agent to attach for direct CLI interaction
-- Graceful shutdown: app sends stop signal to spawned agents, cleans up on quit
-- Track spawned vs. detected (externally started) agents separately
-- Spawned agents auto-assigned to the role chosen at spawn time
+### 5d: Spawning & Lifecycle ✅
+- `ClaudeCodeManager` spawns headless `claude --print <prompt>` child processes
+- "+" Agent button prompts for task, spawns with unassigned role
+- stdout/stderr captured and streamed to garden as speech bubbles
+- "term" button opens native terminal at agent's cwd (macOS: `open -a Terminal`)
+- "stop" button sends SIGTERM with 5s SIGKILL fallback
+- `stopAll()` called on app shutdown to clean up spawned agents
+- Spawned sessions tracked separately (`source: 'spawned'`) from detected ones
 
-### 5e: Head Gardener (Orchestrator)
-- The Head Gardener is the app's orchestration brain — a special non-visible agent
-- User submits a high-level goal (e.g., "Add authentication with tests")
-- Head Gardener breaks it into subtasks using smart routing:
-  - New files / scaffolding → assigns to a planter agent
-  - Refactoring / fixes → assigns to a weeder agent
-  - Tests → assigns to a tester agent
-- Delegates subtasks to idle agents, or spawns new agents if none available
-- Tracks subtask progress, shows orchestration status in UI
-- Keyword/intent matching extends the existing TaskRouter logic
-- Future: could use Claude API call to do smarter task decomposition
+### 5e: Head Gardener (Orchestrator) ✅
+- `HeadGardener` service decomposes goals into subtasks using keyword splitting ("and", "with", "then", commas)
+- Each subtask routed to a role via `TaskRouter` (keyword/intent matching)
+- Delegates to idle agents with matching role, or spawns new agents
+- Tracks plans (`Map<planId, OrchestrationPlan>`) with subtask status
+- Agent exits update subtask status (exit code 0 = complete, else error)
+- UI: goal input bar + "Delegate" button, live plan status with subtask chips
+- IPC: `head-gardener:submit-goal`, `head-gardener:get-plans`, plan/subtask events forwarded to renderer
 
-### 5f: Directory Management
+### 5f: Directory Management 🔲
 - Default: all agents share the watched project directory
 - Per-agent override: individual Claude Code agents can target different directories
 - Garden visually groups plants by directory when multiple directories are active
 - Directory selector shows "primary" + "additional" directories
 
-### 5g: Garden Integration
+### 5g: Garden Integration 🔲
 - Plants grow when Claude Code agents create/modify files (detected via hooks + FileWatcher)
 - Stats panel shows: active agent count, tasks delegated, files changed, per-agent status
-- IPC events: `cc-agent:connected`, `cc-agent:activity`, `cc-agent:disconnected`, `cc-agent:spawned`
 - Existing Phase 1–4 visual features (day/night, weather, themes, particles) all apply to Claude Code agents
 
-### 5h: Setup & Connection UX
+### 5h: Setup & Connection UX 🔲
 - First-run wizard:
   1. Auto-detect if `claude` CLI is installed
   2. Generate hooks JSON config snippet for `~/.claude/settings.json`
   3. Offer to auto-configure hooks (write to settings.json with user permission)
 - Connection status indicator (green = receiving hooks, gray = no hooks, red = error)
-- "Spawn Agent" button to start new Claude Code sessions from the UI
-- Agent management panel: list all active agents, their roles, status, stop/restart controls
-- Role assignment dropdown on each agent (planter/weeder/tester)
+- Agent management panel: role assignment dropdown, detailed per-agent status
