@@ -1,259 +1,157 @@
-# Agent Garden - Architecture
+# Agent Garden — Architecture
 
-## System Architecture
+## System Overview
 
 ```
-+-------------------------------------------------------------------+
-|                        Electron Application                        |
-|                                                                    |
-|  +-----------------------------+  +-----------------------------+  |
-|  |       Main Process          |  |     Renderer Process        |  |
-|  |                             |  |                             |  |
-|  |  +-------+   +-----------+ |  |  +--------+   +-----------+ |  |
-|  |  | main  |   | IPC       | |  |  | React  |   | Phaser.js | |  |
-|  |  | .ts   |<->| Bridge    |<-->|  | UI     |<->| Game      | |  |
-|  |  +-------+   +-----------+ |  |  +--------+   +-----------+ |  |
-|  |      |                     |  |  | TaskInput|  | GardenScene||  |
-|  |      v                     |  |  | StreamLog|  | Agent      ||  |
-|  |  +----------+              |  |  +--------+   | Plants     ||  |
-|  |  | Services |              |  |                +-----------+ |  |
-|  |  +----------+              |  |                             |  |
-|  |  | Claude   |              |  +-----------------------------+  |
-|  |  | Service  |              |                                    |
-|  |  +----------+              |                                    |
-|  |  | File     |              |                                    |
-|  |  | Watcher  |              |                                    |
-|  |  +----------+              |                                    |
-|  +-----------------------------+                                   |
-|                                                                    |
-+----+-------------------------------------------+-------------------+
-     |                                           |
-     v                                           v
-+----------+                              +-------------+
-| Claude   |                              | Local File  |
-| API      |                              | System      |
-| (stream) |                              | (watched    |
-+----------+                              |  directory) |
-                                          +-------------+
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Electron Application                          │
+│                                                                      │
+│  ┌────────────────────────────┐ preload.ts ┌───────────────────────┐ │
+│  │      Main Process          │◄──────────►│  Renderer Process     │ │
+│  │                            │            │                       │ │
+│  │  main.ts                   │            │  React UI             │ │
+│  │    ├ IPC handlers          │            │    ├ App.tsx          │ │
+│  │    ├ auto-save timer       │            │    ├ TaskInput        │ │
+│  │    └ stats tracking        │            │    ├ OutputPanel      │ │
+│  │                            │            │    ├ StatsPanel       │ │
+│  │  services/                 │            │    ├ AgentPanel       │ │
+│  │    ├ HeadGardener          │            │    ├ ThemePicker      │ │
+│  │    │  (orchestrator)       │            │    └ SetupWizard      │ │
+│  │    ├ ClaudeCodeManager     │            │                       │ │
+│  │    │  ├ spawn agents       │            │  Phaser Game          │ │
+│  │    │  ├ detect sessions    │            │    ├ GardenScene      │ │
+│  │    │  └ lifecycle mgmt     │            │    ├ Agent sprites    │ │
+│  │    ├ HookServer (HTTP)     │            │    ├ DayNightCycle    │ │
+│  │    ├ TaskRouter            │            │    ├ ThemeManager     │ │
+│  │    ├ FileWatcher           │            │    └ TimeLapse        │ │
+│  │    └ PersistenceService    │            │                       │ │
+│  └────────────┬───────────────┘            └───────────────────────┘ │
+└───────────────┼──────────────────────────────────────────────────────┘
+                │
+     ┌──────────┼──────────┐
+     ▼          ▼          ▼
+Claude Code   Claude Code   Local File System
+Session 1     Session N     (watched directory)
+(child proc   (detected
+ or detected)  via hooks)
 ```
+
+## Core Concept
+
+Every agent in the garden is a **real Claude Code CLI session**. The app itself is the **Head Gardener** — an orchestrator that:
+- Detects externally-started Claude Code sessions via hooks
+- Spawns new Claude Code sessions as headless child processes
+- Assigns roles (planter/weeder/tester) to each agent
+- Delegates subtasks from high-level goals to available agents
+- Monitors all agent activity and visualizes it in the garden
 
 ## Data Flow
 
+### Agent Detection (External Sessions)
 ```
-User types task
-      |
-      v
-TaskInput (React) --submitTask()--> IPC send('task:submit')
-      |
-      v
-Main Process receives IPC
-      |
-      v
-ClaudeService.streamTask(prompt, onChunk)
-      |
-      |--- Demo mode (no API key): simulated word-by-word stream
-      |--- Live mode: Claude Messages API with streaming
-      |
-      v (each chunk)
-IPC send('agent:stream', { taskId, text, done })
-      |
-      v
-App.tsx receives chunk
-      |
-      +---> setStreamText() -- updates stream log panel
-      +---> GardenGame.onAgentThought(text)
-                  |
-                  v
-            GardenScene.showThought(text) -- updates speech bubble
-      |
-      v (when done=true)
-GardenGame.onTaskComplete()
-      |
-      v
-GardenScene.completeTask()
-      +---> growPlant() -- animated plant at agent's position
-      +---> agent.walkTo(idle position)
+Claude Code CLI (user's terminal)
+  → Hook fires (SessionStart, PreToolUse, PostToolUse, Stop, etc.)
+  → POST to HookServer (localhost:7890)
+  → ClaudeCodeTracker registers/updates session
+  → IPC 'cc-agent:connected' / 'cc-agent:activity'
+  → Renderer: new Agent sprite appears / animates in garden
 ```
 
-### File System Events (parallel channel)
-
+### Agent Spawning (Orchestrated Sessions)
 ```
-FileWatcher.start(directory)
-      |
-      v (on file change)
-IPC send('file:event', { type, path })
-      |
-      v
-App.tsx receives event via onFileEvent callback
-      (currently wired in preload but not connected in main.ts)
+User submits goal → TaskInput → IPC 'task:submit'
+  → HeadGardener: breaks goal into subtasks
+  → TaskRouter: assigns subtask to role
+  → ClaudeCodeManager: spawns `claude` child process with task prompt
+  → Agent sprite appears in garden, walks to work zone
+  → Hook events stream back activity in real-time
+  → FileWatcher detects file changes → plants grow
+  → On complete: agent walks home, sunshine weather
+```
+
+### Head Gardener Orchestration
+```
+HeadGardener:
+  "Add auth with tests" →
+    Subtask 1: "Create auth components"    → planter agent (spawn or assign)
+    Subtask 2: "Write auth unit tests"     → tester agent (spawn or assign)
+
+  "Fix the checkout bug" →
+    Subtask 1: "Debug and fix checkout"    → weeder agent (spawn or assign)
+```
+
+### Role Assignment
+```
+TaskRouter (role assignment for Claude Code agents):
+  "@weeder fix utils.ts"     → assign weeder role
+  "write a test for..."      → assign tester role  (keyword: test)
+  "refactor the login..."    → assign weeder role  (keyword: refactor)
+  "create a component..."    → assign planter role  (default)
+
+  Detected sessions: user can manually assign role, or auto-assign by activity
 ```
 
 ## State Management
 
-State is distributed across three layers with no shared store:
+No centralized store. State distributed across three layers:
 
-| Layer | State | Location | Mechanism |
-|-------|-------|----------|-----------|
-| **Main Process** | API key, active task streams | `ClaudeService` instance | Class instance fields |
-| **React** | `streamText` (accumulated response) | `App.tsx` | `useState` hook |
-| **Phaser** | Agent position, speech bubble visibility, plants | `GardenScene` | Phaser game objects + tweens |
+| Layer | State | Mechanism |
+|-------|-------|-----------|
+| Main Process | Head Gardener state, agent sessions, task queues, stats, config | Class instances, JSON persistence |
+| React | Agent activity, processing flag, history, agent infos | `useState` hooks |
+| Phaser | Agent positions, plants, day/night, theme | Game objects + tweens |
 
-Communication is **unidirectional**: Main -> Renderer via IPC events. The renderer sends commands back via `ipcRenderer.send()` (fire-and-forget).
+`GardenGame` is the bridge: React calls its methods, which forward to `GardenScene`.
 
-There is no centralized state store (no Redux/Zustand). The `GardenGame` class acts as a facade, forwarding method calls from React into the Phaser scene. React and Phaser do not share state directly.
+## IPC Events
 
-## Agent Orchestration
+| Direction | Event | Payload |
+|-----------|-------|---------|
+| Renderer → Main | `task:submit` | `{ prompt }` |
+| Renderer → Main | `agent:spawn` | `{ role, directory?, prompt? }` |
+| Renderer → Main | `agent:stop` | `{ agentId }` |
+| Renderer → Main | `agent:set-role` | `{ agentId, role }` |
+| Renderer → Main | `agent:open-terminal` | `{ agentId }` |
+| Renderer → Main | `watcher:set-directory` | `{ path }` |
+| Renderer → Main | `garden:save` | `{ plants, theme }` |
+| Renderer → Main | `hooks:configure` | (auto-configure Claude Code hooks) |
+| Main → Renderer | `cc-agent:connected` | `{ agentId, sessionId, directory }` |
+| Main → Renderer | `cc-agent:activity` | `{ agentId, event, tool?, file? }` |
+| Main → Renderer | `cc-agent:disconnected` | `{ agentId, reason }` |
+| Main → Renderer | `cc-agent:spawned` | `{ agentId, role, prompt }` |
+| Main → Renderer | `task:status` | `{ agentId, status, subtasks? }` |
+| Main → Renderer | `file:event` | `{ type, path }` |
+| Main → Renderer | `agent:error` | `{ agentId, message, type }` |
+| Main → Renderer | `agents:updated` | `AgentInfo[]` |
+| Main → Renderer | `stats:updated` | `GardenStats` |
+| Main → Renderer | `garden:save-request` | (trigger auto-save) |
 
-### Current (MVP - Single Agent)
+## Claude Code Integration
 
+Two modes of integration:
+
+### 1. Hook-Based Detection (external sessions)
 ```
-                    +------------------+
-                    |   Main Process   |
-                    |                  |
-User task --------> | ipcMain handler  |
-                    |       |          |
-                    |       v          |
-                    | ClaudeService    |  (one instance, sequential tasks)
-                    |   .streamTask()  |
-                    +--------|---------+
-                             |
-                    IPC stream events
-                             |
-                             v
-                    +------------------+
-                    | Renderer         |
-                    | One Agent sprite |
-                    | walks + thinks   |
-                    +------------------+
-```
-
-Tasks are processed **sequentially** -- a new `task:submit` IPC message triggers `streamTask()` which `await`s until the stream completes. No task queue exists; concurrent submissions would interleave stream chunks.
-
-### Future (Multi-Agent)
-
-Planned orchestration for multiple agents:
-
-```
-TaskQueue
-  |
-  +--> AgentPool
-         |
-         +--> Agent 1 (ClaudeService instance) --> "planter" role
-         +--> Agent 2 (ClaudeService instance) --> "weeder" role (refactoring)
-         +--> Agent 3 (ClaudeService instance) --> "tester" role
+HookServer listens on localhost:7890
+  ← SessionStart:     register new agent
+  ← UserPromptSubmit: show task in speech bubble
+  ← PreToolUse:       walking animation, show tool name
+  ← PostToolUse:      working animation, show result
+  ← Stop:             complete task, walk home
+  ← SessionEnd:       remove agent from garden
+  ← Notification:     flash attention indicator
 ```
 
-Each agent would get its own `ClaudeService` instance with a specialized system prompt. A `TaskRouter` would assign tasks to agents based on type. The renderer would track multiple `Agent` sprites, each bound to a backend agent ID.
-
-## Claude API Integration Pattern
-
-The integration lives in `src/main/services/claude.ts` and follows a **streaming callback** pattern:
-
+### 2. Spawned Child Processes (orchestrated sessions)
 ```
-ClaudeService
-  |
-  +--> constructor: reads ANTHROPIC_API_KEY from env
-  |
-  +--> streamTask(prompt, onChunk):
-         |
-         |-- No API key? --> Demo mode (simulated word stream)
-         |
-         |-- Has API key:
-               |
-               v
-             new Anthropic({ apiKey })
-               |
-               v
-             client.messages.stream({
-               model: 'claude-sonnet-4-20250514',
-               max_tokens: 4096,
-               messages: [{ role: 'user', content: prompt }]
-             })
-               |
-               v
-             for await (event of stream):
-               if content_block_delta + text_delta:
-                 onChunk(event.delta.text, false)
-               |
-               v
-             onChunk('', true)  // signal completion
+ClaudeCodeManager.spawn(role, prompt, directory?):
+  → child_process.spawn('claude', ['--print', prompt], { cwd: directory })
+  → stdout captured → streamed to garden UI
+  → Hooks also fire → same visualization pipeline
+  → On exit: mark agent as idle or remove
 ```
 
-Key design decisions:
-- **Streaming over batch**: Uses `messages.stream()` for real-time speech bubble updates
-- **Callback-based**: `onChunk(text, done)` rather than returning an async iterator, keeping the IPC forwarding simple
-- **Lazy SDK import**: `require('@anthropic-ai/sdk')` only when API key is present
-- **No conversation history**: Each task is a single-turn message (no memory between tasks)
-- **No system prompt yet**: Raw user prompt is sent directly
-
-## File System Watching Strategy
-
-The watcher lives in `src/main/services/watcher.ts` and uses Node.js built-in `fs.watch`:
-
-```
-FileWatcher
-  |
-  +--> start(directory, onEvent):
-  |      fs.watch(directory, { recursive: true })
-  |        |
-  |        +--> 'rename' event --> FileEvent { type: 'created', path }
-  |        +--> 'change' event --> FileEvent { type: 'modified', path }
-  |
-  +--> stop():
-         watcher.close()
-```
-
-### Current status
-
-The `FileWatcher` class exists but is **not yet wired** into `main.ts`. The preload bridge exposes `onFileEvent` but no main process code sends `file:event` IPC messages.
-
-### Planned integration
-
-```
-main.ts
-  |
-  +--> app.whenReady():
-         |
-         +--> FileWatcher.start(userSelectedDir, (event) => {
-                mainWindow.webContents.send('file:event', event);
-              })
-         |
-         v
-Renderer receives file events --> GardenScene grows/updates plants
-```
-
-### Limitations of `fs.watch`
-
-- Event types are coarse (`rename` vs `change` only) -- no native `deleted` detection
-- On macOS with `recursive: true`, uses FSEvents (efficient)
-- On Linux, `recursive: true` is not natively supported (needs `chokidar` for production)
-- No debouncing -- rapid saves will fire multiple events
-- No file content diffing -- watcher reports changes, not what changed
-
-For production, replacing with `chokidar` would provide cross-platform recursive watching, `add`/`change`/`unlink` granularity, and built-in debouncing.
-
-## Directory Structure
-
-```
-src/
-  main/                     # Electron main process
-    main.ts                 # App entry, window creation, IPC handlers
-    preload.ts              # Context bridge (main <-> renderer)
-    services/
-      claude.ts             # Claude API streaming integration
-      watcher.ts            # File system watcher
-  renderer/                 # Electron renderer process
-    index.html              # HTML shell
-    index.tsx               # React entry point
-    App.tsx                 # Root component, IPC listeners, game bridge
-    components/
-      TaskInput.tsx          # Task input form
-    game/
-      GardenGame.ts          # Phaser game wrapper (React <-> Phaser bridge)
-      scenes/
-        GardenScene.ts       # Main game scene (ground, plants, speech bubbles)
-      sprites/
-        Agent.ts             # Pixel art gardener sprite with walk animation
-  shared/
-    types.ts                 # Shared TypeScript interfaces (Task, AgentStreamChunk, FileEvent)
-```
+### Process Scanning (supplemental)
+- Periodic `ps` scan (every 10s) detects `claude` processes
+- Cross-references with hook data
+- Shows unhooked sessions as "detected (no hooks)" with limited visualization

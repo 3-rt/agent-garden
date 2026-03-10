@@ -30,8 +30,6 @@ export class GardenScene extends Phaser.Scene {
   private themeManager = new ThemeManager();
   private groundTiles: Phaser.GameObjects.Rectangle[] = [];
   private pathTiles: Phaser.GameObjects.Rectangle[] = [];
-  private zoneSigns: { bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }[] = [];
-  private dividers: Phaser.GameObjects.Rectangle[] = [];
   private titleText!: Phaser.GameObjects.Text;
   private snapshotInterval = 10_000; // snapshot every 10s
   private lastSnapshotTime = 0;
@@ -41,80 +39,54 @@ export class GardenScene extends Phaser.Scene {
   }
 
   create() {
-    const { width, height } = this.scale;
-    const theme = this.themeManager.current;
+    try {
+      // Use cameras.main for reliable dimensions with Scale.RESIZE
+      const cam = this.cameras.main;
+      const width = cam.width || this.scale.width || 800;
+      const height = cam.height || this.scale.height || 600;
+      const theme = this.themeManager.current;
 
-    // Draw ground grid
-    for (let x = 0; x < width; x += 32) {
-      for (let y = 0; y < height; y += 32) {
-        const isEven = ((x / 32 + y / 32) % 2 === 0);
-        const tile = this.add.rectangle(
-          x + 16, y + 16, 32, 32,
-          isEven ? theme.groundLight : theme.groundDark,
-        );
-        this.groundTiles.push(tile);
-      }
-    }
-
-    // Garden path
-    for (let x = 0; x < width; x += 32) {
-      const tile = this.add.rectangle(x + 16, height / 2, 32, 32, theme.pathColor);
-      this.pathTiles.push(tile);
-    }
-
-    // Zone dividers and signs
-    const zones = Object.entries(ZONE_LAYOUT);
-    for (const [key, zone] of zones) {
-      const zoneX = zone.x * width;
-      const zoneW = zone.width * width;
-      this.zonePlantSlots.set(key, 0);
-
-      // Zone sign
-      const signX = zoneX + zoneW / 2;
-      const signColor = theme.signColors[key] || 0x555555;
-      const signBg = this.add.rectangle(signX, 14, 70, 18, signColor, 0.3).setDepth(10);
-      const signText = this.add.text(signX, 14, this.zoneLabel(key), {
-        fontSize: '10px',
-        color: theme.labelColor,
-        fontFamily: 'monospace',
-      }).setOrigin(0.5).setDepth(11);
-      this.zoneSigns.push({ bg: signBg, text: signText });
-
-      // Zone divider lines (skip first zone)
-      if (zone.x > 0) {
-        const divX = zoneX;
-        for (let y = 0; y < height; y += 8) {
-          const div = this.add.rectangle(divX, y + 4, 2, 4, theme.dividerColor, 0.5);
-          this.dividers.push(div);
+      // Draw ground grid
+      for (let x = 0; x < width; x += 32) {
+        for (let y = 0; y < height; y += 32) {
+          const isEven = ((x / 32 + y / 32) % 2 === 0);
+          const tile = this.add.rectangle(
+            x + 16, y + 16, 32, 32,
+            isEven ? theme.groundLight : theme.groundDark,
+          );
+          this.groundTiles.push(tile);
         }
       }
+
+      // Garden path
+      for (let x = 0; x < width; x += 32) {
+        const tile = this.add.rectangle(x + 16, height / 2, 32, 32, theme.pathColor);
+        this.pathTiles.push(tile);
+      }
+
+      // Initialize zone plant slot counters
+      for (const key of Object.keys(ZONE_LAYOUT)) {
+        this.zonePlantSlots.set(key, 0);
+      }
+
+      // Title
+      this.titleText = this.add.text(width / 2, height - 12, 'Agent Garden', {
+        fontSize: '10px',
+        color: theme.titleColor,
+        fontFamily: 'monospace',
+      }).setOrigin(0.5).setDepth(20);
+
+      // No default agents — they appear dynamically from Claude Code sessions
+
+      // Day/Night cycle
+      this.dayNight = new DayNightCycle(this);
+
+      // Theme change listener
+      this.themeManager.onChange((t) => this.applyTheme(t));
+
+    } catch (err) {
+      console.error('[GardenScene] create() error:', err);
     }
-
-    // Title
-    this.titleText = this.add.text(width / 2, height - 12, 'Agent Garden', {
-      fontSize: '10px',
-      color: theme.titleColor,
-      fontFamily: 'monospace',
-    }).setOrigin(0.5).setDepth(20);
-
-    // Create 3 agents
-    const agentDefs: { id: string; role: AgentRole; homeX: number }[] = [
-      { id: 'agent-planter', role: 'planter', homeX: width * 0.17 },
-      { id: 'agent-weeder',  role: 'weeder',  homeX: width * 0.5 },
-      { id: 'agent-tester',  role: 'tester',  homeX: width * 0.83 },
-    ];
-
-    for (const def of agentDefs) {
-      const agent = new Agent(this, def.homeX, height / 2, def.id, def.role);
-      this.agents.set(def.id, agent);
-      this.accumulatedText.set(def.id, '');
-    }
-
-    // Day/Night cycle
-    this.dayNight = new DayNightCycle(this);
-
-    // Theme change listener
-    this.themeManager.onChange((t) => this.applyTheme(t));
   }
 
   update(_time: number, delta: number) {
@@ -199,6 +171,108 @@ export class GardenScene extends Phaser.Scene {
     this.agents.get(agentId)?.setTokens(tokens);
   }
 
+  // --- Dynamic Claude Code agent management ---
+
+  addAgent(agentId: string, role: AgentRole, label?: string) {
+    if (this.agents.has(agentId)) return;
+
+    const { width, height } = this.scale;
+    const zone = this.roleToZone(role);
+    const layout = ZONE_LAYOUT[zone];
+
+    // Position within the role's zone, offset by existing agent count in that zone
+    const agentsInZone = Array.from(this.agents.values()).filter(a => this.roleToZone(a.role) === zone).length;
+    const zoneStart = layout.x * width;
+    const zoneW = layout.width * width;
+    const homeX = zoneStart + zoneW * 0.3 + agentsInZone * 40;
+
+    const agent = new Agent(this, homeX, height / 2, agentId, role);
+    if (label) agent.setLabel(label);
+    this.agents.set(agentId, agent);
+    this.accumulatedText.set(agentId, '');
+
+    // Fade-in entrance
+    agent.setState('idle');
+  }
+
+  removeAgent(agentId: string) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
+    agent.hideSpeech(false);
+    agent.destroy();
+    this.agents.delete(agentId);
+    this.accumulatedText.delete(agentId);
+  }
+
+  setAgentRole(agentId: string, role: AgentRole) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
+    const oldZone = this.roleToZone(agent.role);
+    agent.setRole(role);
+    const newZone = this.roleToZone(role);
+
+    // If zone changed, walk agent to new zone
+    if (oldZone !== newZone) {
+      const { width, height } = this.scale;
+      const layout = ZONE_LAYOUT[newZone];
+      const zoneStart = layout.x * width;
+      const zoneW = layout.width * width;
+      const newHomeX = zoneStart + zoneW * 0.5;
+      agent.homeX = newHomeX;
+      agent.homeY = height / 2;
+      agent.walkTo(newHomeX, height / 2, () => agent.setState('idle'));
+    }
+  }
+
+  /** Show activity from a Claude Code hook event */
+  showActivity(agentId: string, eventType: string, detail?: string) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
+    switch (eventType) {
+      case 'UserPromptSubmit':
+        agent.showSpeechStatic(detail ? detail.slice(0, 50) : 'Thinking...');
+        agent.setState('working');
+        break;
+
+      case 'PreToolUse': {
+        // Walk to a random spot in their zone and show tool name
+        const { width, height } = this.scale;
+        const zone = this.roleToZone(agent.role);
+        const layout = ZONE_LAYOUT[zone];
+        const zoneStart = layout.x * width;
+        const zoneEnd = (layout.x + layout.width) * width;
+        const targetX = zoneStart + 40 + Math.random() * (zoneEnd - zoneStart - 80);
+        agent.walkTo(targetX, height / 2, () => agent.setState('working'));
+        if (detail) agent.showSpeechStatic(detail.slice(0, 50));
+        break;
+      }
+
+      case 'PostToolUse':
+        agent.setState('working');
+        if (detail) agent.showSpeechStatic(detail.slice(0, 50));
+        break;
+
+      case 'Stop':
+        agent.showSpeechStatic('Done!');
+        this.time.delayedCall(1500, () => agent.hideSpeech(true));
+        agent.walkHome(() => agent.setState('idle'));
+        this.dayNight.setWeather('sunshine');
+        this.time.delayedCall(5000, () => {
+          if (this.dayNight.weather === 'sunshine') {
+            this.dayNight.setWeather('clear');
+          }
+        });
+        break;
+
+      case 'Notification':
+        if (detail) agent.showSpeechStatic(detail.slice(0, 50));
+        break;
+    }
+  }
+
   onFileCreated(filename: string) {
     if (this.plantMap.has(filename)) return;
 
@@ -265,20 +339,6 @@ export class GardenScene extends Phaser.Scene {
     // Path
     for (const tile of this.pathTiles) {
       tile.setFillStyle(theme.pathColor);
-    }
-
-    // Signs
-    const zoneKeys = Object.keys(ZONE_LAYOUT);
-    for (let j = 0; j < this.zoneSigns.length; j++) {
-      const key = zoneKeys[j];
-      const signColor = theme.signColors[key] || 0x555555;
-      this.zoneSigns[j].bg.setFillStyle(signColor, 0.3);
-      this.zoneSigns[j].text.setColor(theme.labelColor);
-    }
-
-    // Dividers
-    for (const div of this.dividers) {
-      div.setFillStyle(theme.dividerColor, 0.5);
     }
 
     // Title
@@ -363,6 +423,7 @@ export class GardenScene extends Phaser.Scene {
       case 'planter': return 'frontend';
       case 'weeder':  return 'backend';
       case 'tester':  return 'tests';
+      case 'unassigned': return 'frontend';
     }
   }
 
@@ -371,10 +432,6 @@ export class GardenScene extends Phaser.Scene {
     if (lower.includes('.test.') || lower.includes('.spec.') || lower.includes('test')) return 'tests';
     if (lower.includes('.tsx') || lower.includes('.css') || lower.includes('component')) return 'frontend';
     return 'backend';
-  }
-
-  private zoneLabel(key: string): string {
-    return key.charAt(0).toUpperCase() + key.slice(1);
   }
 
   private extractSnippet(text: string): string {

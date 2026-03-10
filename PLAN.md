@@ -1,188 +1,104 @@
-# Agent Garden - Implementation Plan
+# Agent Garden — Implementation Plan
 
-## Current State Assessment
+Phases 1–4 built the visual garden foundation. Phase 5 transforms the app from an API wrapper into a full Claude Code orchestrator (the Head Gardener). Phase 5 is the current focus.
 
-What exists and works:
-- Electron app shell with main/renderer process split
-- Phaser.js game with garden scene, ground grid, path
-- Single agent sprite with idle bob + walk animation
-- Speech bubble that shows streaming text
-- TaskInput component wired through IPC to ClaudeService
-- ClaudeService with demo mode (simulated stream) and real Claude API streaming
-- FileWatcher class (exists but **not connected**)
-- Plant growth animation (triggers on task complete, not on file creation)
+## Phase 1: MVP Loop ✅
+- FileWatcher wired into main process with 200ms debounce
+- Claude generates code with `// @file:` convention, saved to watched directory
+- File events trigger plant growth (file→plant mapping)
+- Directory picker with native dialog, persisted config
+- Task queue prevents stream interleaving
 
-**The app runs but doesn't produce real output.** Claude generates text that displays in speech bubbles, but nothing is saved to disk. Plants grow as a visual reward but aren't tied to actual files.
+## Phase 2: Polish ✅
+- Agent walk/work animations, state machine (idle/walking/working/error)
+- Plant variety by file extension (.tsx=flower, .ts=tree, .css=rect, .json=circle, .test=mushroom)
+- Particle effects on plant creation/modification
+- Speech bubbles with smart snippet extraction
+- Collapsible output panel with 50-entry history
+- API key modal (first-run + re-openable), stored via `safeStorage`
+- Error handling with retry, typed errors (auth/rate-limit/network)
 
----
+## Phase 3: Multi-Agent ✅
+- AgentPool: 3 agents (planter/weeder/tester) with role-specific system prompts
+- TaskRouter: `@agent` prefix or keyword matching
+- Garden zones (Frontend/Backend/Tests) with signs and dividers
+- Unique hat colors per role, name labels, independent speech bubbles
+- Context window visualization (backpack fill + color gradient)
+- Token tracking per agent
 
-## Phase 1: Complete the MVP Loop
+## Phase 4: Delight ✅
+- Day/night cycle (2-min: dawn→day→dusk→night), sun/moon arc, stars
+- Weather: rain on errors, sunshine on success
+- 5 themes (Garden, Desert, Zen, Underwater, Space) with live switching
+- Time-lapse snapshots (10s interval, max 200)
+- Persistence: auto-save every 30s + on quit (plants, theme, stats)
+- Stats panel: files, tasks, tokens, uptime, health score
 
-Goal: A single agent that takes a task, generates code via Claude, saves it to disk, and the garden reacts to the new file.
+## Phase 5: Head Gardener — Claude Code Orchestration 🔲
 
-### 1.1 Wire FileWatcher into Main Process
-**Files:** `src/main/main.ts`, `src/main/services/watcher.ts`
-- Start FileWatcher on app ready with a default watched directory (e.g., `~/agent-garden-output/`)
-- Forward file events to renderer via `mainWindow.webContents.send('file:event', event)`
-- Add IPC handler for `watcher:set-directory` so renderer can change the watched path
-- Add debouncing (200ms) to avoid duplicate events from rapid writes
+Replace the built-in API agents with real Claude Code CLI sessions. The app becomes the **Head Gardener**: an orchestrator that detects, spawns, assigns roles to, coordinates, and monitors Claude Code agents. Every gardener in the garden is a real Claude Code session.
 
-### 1.2 Save Generated Code to Files
-**Files:** `src/main/main.ts`, `src/main/services/claude.ts`
-- Add a system prompt to ClaudeService that instructs Claude to output code with file paths
-- Parse Claude's response to extract filename + content (convention: first line `// filename: component.tsx`)
-- Write extracted code to the watched directory using `fs.writeFile`
-- Send file-save confirmation back to renderer via IPC
+### 5a: Hook Listener Server
+- Run a lightweight HTTP server (port 7890) inside the Electron main process
+- Accept POST requests from Claude Code hooks: `SessionStart`, `SessionEnd`, `Stop`, `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Notification`
+- Parse hook payloads to extract session ID, working directory, tool names, and timestamps
+- Track active sessions in a `ClaudeCodeTracker` service (map of sessionId → session state)
+- Auto-expire stale sessions after configurable timeout (default 5 min no activity)
 
-### 1.3 Connect File Events to Plant Growth
-**Files:** `src/renderer/App.tsx`, `src/renderer/game/GardenGame.ts`, `src/renderer/game/scenes/GardenScene.ts`
-- Listen for `file:event` in App.tsx (already exposed in preload)
-- On `created` event: grow a new plant at a deterministic position (hash filename to x-coordinate)
-- On `modified` event: animate existing plant (pulse/shimmer effect)
-- Track file-to-plant mapping so plants represent real files
+### 5b: Process Scanning (Supplemental)
+- Periodic `ps` scan (every 10s) to detect `claude` processes
+- Cross-reference with hook data — if a process exists but no hooks received, show as "detected (no hooks)"
+- Extract working directory from process args if possible
 
-### 1.4 Directory Picker UI
-**Files:** `src/main/main.ts`, `src/main/preload.ts`, `src/shared/types.ts`, new: `src/renderer/components/DirectoryPicker.tsx`
-- Add IPC handler that opens Electron's native `dialog.showOpenDialog` for folder selection
-- Expose `selectDirectory()` in preload bridge
-- Add a small UI element showing the current watched directory with a change button
-- Persist selected directory in `electron-store` or a simple JSON config
+### 5c: Agent Sprites & Role Assignment
+- Each detected/spawned Claude Code session gets its own pixel-art gardener sprite
+- User can designate each agent a role: planter (green hat), weeder (orange hat), tester (blue hat)
+- Unassigned agents get a default purple hat until a role is set
+- Agents appear in the garden zone matching their role (Frontend/Backend/Tests)
+- Speech bubble shows real-time activity from hooks (e.g., "Editing src/App.tsx", "Running tests")
+- Walking animation on `PreToolUse`, working animation during tool execution, idle when waiting
+- Agent label shows session directory basename + role (e.g., "my-app / planter")
+- Dynamic agent count — sprites appear/disappear as sessions start and end
 
-### 1.5 Task Queue (prevent interleaving)
-**Files:** `src/main/main.ts`
-- Add a simple queue: if a task is in-progress, queue the next one
-- Send task status (`pending` / `in-progress` / `complete` / `error`) to renderer
-- Disable the submit button while a task is streaming
+### 5d: Spawning & Lifecycle
+- App can spawn new Claude Code sessions as headless child processes
+- User clicks "Spawn Agent" → picks role + optional prompt + optional directory
+- Output captured internally, streamed to garden UI via speech bubbles + output panel
+- "Open in terminal" button on any spawned agent to attach for direct CLI interaction
+- Graceful shutdown: app sends stop signal to spawned agents, cleans up on quit
+- Track spawned vs. detected (externally started) agents separately
+- Spawned agents auto-assigned to the role chosen at spawn time
 
----
+### 5e: Head Gardener (Orchestrator)
+- The Head Gardener is the app's orchestration brain — a special non-visible agent
+- User submits a high-level goal (e.g., "Add authentication with tests")
+- Head Gardener breaks it into subtasks using smart routing:
+  - New files / scaffolding → assigns to a planter agent
+  - Refactoring / fixes → assigns to a weeder agent
+  - Tests → assigns to a tester agent
+- Delegates subtasks to idle agents, or spawns new agents if none available
+- Tracks subtask progress, shows orchestration status in UI
+- Keyword/intent matching extends the existing TaskRouter logic
+- Future: could use Claude API call to do smarter task decomposition
 
-## Phase 2: Polish the Single-Agent Experience
+### 5f: Directory Management
+- Default: all agents share the watched project directory
+- Per-agent override: individual Claude Code agents can target different directories
+- Garden visually groups plants by directory when multiple directories are active
+- Directory selector shows "primary" + "additional" directories
 
-Goal: Make the MVP feel complete and enjoyable to use.
+### 5g: Garden Integration
+- Plants grow when Claude Code agents create/modify files (detected via hooks + FileWatcher)
+- Stats panel shows: active agent count, tasks delegated, files changed, per-agent status
+- IPC events: `cc-agent:connected`, `cc-agent:activity`, `cc-agent:disconnected`, `cc-agent:spawned`
+- Existing Phase 1–4 visual features (day/night, weather, themes, particles) all apply to Claude Code agents
 
-### 2.1 Improve Agent Visuals
-**Files:** `src/renderer/game/sprites/Agent.ts`
-- Add walking animation (leg movement via tween)
-- Add "working" animation (tool swinging or digging motion while streaming)
-- Add idle animation variety (look around, stretch)
-- Visual indicator for agent state (color tint or icon)
-
-### 2.2 Better Plant Variety
-**Files:** `src/renderer/game/scenes/GardenScene.ts`
-- Map file types to plant types (`.tsx` = flower, `.ts` = tree, `.css` = bush, `.test.*` = mushroom)
-- Plant size based on file size / line count
-- Add simple particle effects (leaves, sparkles) on plant creation
-- Plants should persist across app restarts (store garden state in JSON)
-
-### 2.3 Richer Speech Bubbles
-**Files:** `src/renderer/game/scenes/GardenScene.ts`
-- Auto-size bubble to content
-- Show summarized thought (first comment or function name) instead of raw stream tail
-- Add a small tail/pointer from bubble to agent
-- Fade out animation instead of abrupt hide
-
-### 2.4 Stream Output Panel
-**Files:** `src/renderer/App.tsx`, new: `src/renderer/components/OutputPanel.tsx`
-- Collapsible panel showing full generated code with syntax highlighting
-- Show which file was created and its path
-- Copy-to-clipboard button
-- History of past task outputs
-
-### 2.5 Error Handling & API Key Setup
-**Files:** `src/main/services/claude.ts`, `src/renderer/App.tsx`
-- First-run modal to enter API key (store securely via `safeStorage`)
-- Graceful handling of rate limits, network errors, invalid key
-- Agent shows distress animation on error (wilted plant?)
-- Retry button for failed tasks
-
----
-
-## Phase 3: Multi-Agent & Garden Zones
-
-Goal: Multiple agents working simultaneously on different parts of the codebase.
-
-### 3.1 Agent Pool & Task Router
-**Files:** new: `src/main/services/agent-pool.ts`, `src/main/services/task-router.ts`
-- `AgentPool` manages multiple `ClaudeService` instances (configurable count, default 3)
-- Each agent has a role/specialty defined by its system prompt
-- `TaskRouter` assigns tasks based on keywords or explicit user choice
-- Agents stream independently; IPC events include `agentId`
-
-### 3.2 Multiple Agent Sprites
-**Files:** `src/renderer/game/scenes/GardenScene.ts`, `src/renderer/game/sprites/Agent.ts`
-- Spawn multiple agents at different home positions
-- Each agent has a unique color/hat to distinguish them
-- Agents walk to their own work zones
-- Prevent agents from overlapping (simple collision avoidance)
-
-### 3.3 Garden Sections
-**Files:** `src/renderer/game/scenes/GardenScene.ts`
-- Divide garden into zones: frontend, backend, tests, config
-- Map file paths to zones (e.g., `src/components/*` -> frontend zone)
-- Visual borders/signs between zones
-- Agents walk to the correct zone for their task
-
-### 3.4 Context Window Visualization
-**Files:** `src/renderer/game/sprites/Agent.ts`, `src/shared/types.ts`
-- Track token usage per agent from Claude API response
-- Visual backpack on agent that fills up as context grows
-- Color changes as context approaches limit (green -> yellow -> red)
-- "Pruning" animation when context is cleared
-
----
-
-## Phase 4: Delight & Advanced Features
-
-### 4.1 Day/Night Cycle & Weather
-- Time-based background changes
-- Rain when tests fail, sunshine when they pass
-- Seasonal themes
-
-### 4.2 Time-Lapse Recording
-- Record garden state snapshots over time
-- Playback showing garden growing as codebase evolves
-- Export as GIF or video
-
-### 4.3 Custom Themes
-- Theme configuration (desert, zen garden, underwater, space)
-- Custom color palettes
-- Theme-appropriate plant and agent sprites
-
-### 4.4 Garden Persistence & Stats
-- Save/load garden state
-- Dashboard: files created, tokens used, tasks completed
-- "Garden health" score based on test pass rate, lint results
-
----
-
-## Task Priority & Dependencies
-
-```
-Phase 1 (MVP Loop)                     Phase 2 (Polish)
-========================               ========================
-1.1 Wire FileWatcher ----+             2.1 Agent Visuals
-1.2 Save Code to Files --+--> 1.3      2.2 Plant Variety
-                          |             2.3 Speech Bubbles
-                          +--> 1.4      2.4 Output Panel
-                          |             2.5 Error Handling
-                          +--> 1.5
-                                            |
-                                            v
-                                       Phase 3 (Multi-Agent)
-                                       ========================
-                                       3.1 Agent Pool ----+
-                                       3.2 Multi Sprites --+--> 3.3
-                                                           +--> 3.4
-                                            |
-                                            v
-                                       Phase 4 (Delight)
-```
-
-## Immediate Next Steps
-
-1. **1.1** - Wire FileWatcher in `main.ts` (15 lines of code, unblocks the whole loop)
-2. **1.2** - Add system prompt + file saving to ClaudeService
-3. **1.3** - Connect file events to plant growth in GardenScene
-4. **1.5** - Add task queue to prevent stream interleaving
-
-These four items close the core loop: task -> Claude -> file -> plant.
+### 5h: Setup & Connection UX
+- First-run wizard:
+  1. Auto-detect if `claude` CLI is installed
+  2. Generate hooks JSON config snippet for `~/.claude/settings.json`
+  3. Offer to auto-configure hooks (write to settings.json with user permission)
+- Connection status indicator (green = receiving hooks, gray = no hooks, red = error)
+- "Spawn Agent" button to start new Claude Code sessions from the UI
+- Agent management panel: list all active agents, their roles, status, stop/restart controls
+- Role assignment dropdown on each agent (planter/weeder/tester)

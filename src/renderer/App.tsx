@@ -7,7 +7,7 @@ import { ApiKeyModal } from './components/ApiKeyModal';
 import { StatsPanel, GardenStatsData } from './components/StatsPanel';
 import { ThemePicker } from './components/ThemePicker';
 import { ThemeManager } from './game/systems/ThemeManager';
-import type { AgentInfo } from '../shared/types';
+import type { AgentInfo, CCAgentSession } from '../shared/types';
 
 const availableThemes = ThemeManager.getAvailableThemes();
 
@@ -32,6 +32,7 @@ export function App() {
     sessionStart: Date.now(),
   });
   const [currentTheme, setCurrentTheme] = useState('garden');
+  const [ccAgents, setCCAgents] = useState<CCAgentSession[]>([]);
 
   useEffect(() => {
     if (gameContainerRef.current && !gameRef.current) {
@@ -128,6 +129,40 @@ export function App() {
 
     window.electronAPI?.onStatsUpdated((s) => setStats(s));
 
+    // Claude Code agent events
+    window.electronAPI?.getCCAgents().then((agents) => {
+      setCCAgents(agents);
+      for (const agent of agents) {
+        const label = agent.directory
+          ? agent.directory.split('/').pop() || agent.agentId
+          : agent.agentId;
+        gameRef.current?.addAgent(agent.agentId, agent.role, label);
+      }
+    });
+
+    window.electronAPI?.onCCAgentConnected((session) => {
+      setCCAgents((prev) => [...prev, session]);
+      const label = session.directory
+        ? session.directory.split('/').pop() || session.agentId
+        : session.agentId;
+      gameRef.current?.addAgent(session.agentId, session.role, label);
+    });
+
+    window.electronAPI?.onCCAgentActivity((data) => {
+      // Build a display string from the event
+      let detail: string | undefined;
+      if (data.prompt) detail = data.prompt;
+      else if (data.tool && data.file) detail = `${data.tool}: ${data.file}`;
+      else if (data.tool) detail = data.tool;
+
+      gameRef.current?.showActivity(data.agentId, data.event, detail);
+    });
+
+    window.electronAPI?.onCCAgentDisconnected((data) => {
+      setCCAgents((prev) => prev.filter((a) => a.agentId !== data.agentId));
+      gameRef.current?.removeAgent(data.agentId);
+    });
+
     // Auto-save: listen for periodic save requests from main process
     window.electronAPI?.onSaveRequested(() => {
       if (gameRef.current) {
@@ -178,6 +213,7 @@ export function App() {
     planter: '#66bb6a',
     weeder: '#ffa726',
     tester: '#42a5f5',
+    unassigned: '#ce93d8',
   };
 
   const plantCount = gameRef.current?.getPlantCount() || 0;
@@ -236,6 +272,33 @@ export function App() {
               </span>
             </div>
           ))}
+          {ccAgents.map((agent) => (
+            <div
+              key={agent.agentId}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                background: agent.status === 'working' ? '#1a1a2a' : '#0d1117',
+                borderRadius: '3px',
+                border: `1px solid ${agent.status === 'working' ? roleColor[agent.role] || '#ce93d8' : '#333'}`,
+                color: roleColor[agent.role] || '#ce93d8',
+              }}
+            >
+              <span style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: agent.status === 'working' ? '#ffca28' : agent.status === 'idle' ? '#66bb6a' : '#666',
+                display: 'inline-block',
+              }} />
+              <span>{agent.directory ? agent.directory.split('/').pop() : agent.role}</span>
+              <span style={{ color: '#666', fontSize: '10px' }}>
+                {agent.source === 'process' ? 'ps' : 'hook'}
+              </span>
+            </div>
+          ))}
           <div style={{ marginLeft: 'auto' }}>
             <ThemePicker
               currentTheme={currentTheme}
@@ -280,6 +343,21 @@ export function App() {
         <TaskInput onSubmit={handleSubmitTask} disabled={isProcessing} />
         <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <DirectoryPicker directory={directory} />
+          <button
+            onClick={() => setShowKeyModal(true)}
+            style={{
+              padding: '2px 8px',
+              background: 'transparent',
+              border: '1px solid #0f3460',
+              borderRadius: '3px',
+              color: '#7ec8e3',
+              fontFamily: 'monospace',
+              fontSize: '11px',
+              cursor: 'pointer',
+            }}
+          >
+            API Key
+          </button>
         </div>
       </div>
       <StatsPanel stats={stats} plantCount={plantCount} />

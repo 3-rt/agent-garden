@@ -7,13 +7,14 @@ const HAT_COLORS: Record<AgentRole, number> = {
   planter: 0x388e3c,  // green
   weeder: 0xf57c00,   // orange
   tester: 0x1565c0,   // blue
+  unassigned: 0x7b1fa2, // purple
 };
 
 const MAX_CONTEXT_TOKENS = 200000;
 
 export class Agent {
   public readonly id: string;
-  public readonly role: AgentRole;
+  private _role: AgentRole;
   public x: number;
   public y: number;
   public homeX: number;
@@ -46,7 +47,7 @@ export class Agent {
   constructor(scene: Phaser.Scene, x: number, y: number, id: string, role: AgentRole) {
     this.scene = scene;
     this.id = id;
-    this.role = role;
+    this._role = role;
     this.x = x;
     this.y = y;
     this.homeX = x;
@@ -113,12 +114,30 @@ export class Agent {
     this.startIdleAnimation();
   }
 
+  get role(): AgentRole {
+    return this._role;
+  }
+
   get state(): AgentState {
     return this._state;
   }
 
   get totalTokens(): number {
     return this._totalTokens;
+  }
+
+  setRole(role: AgentRole) {
+    this._role = role;
+    const hatColor = HAT_COLORS[role];
+    this.hat.setFillStyle(hatColor);
+    this.nameLabel.setText(this._label || role);
+  }
+
+  private _label?: string;
+
+  setLabel(label: string) {
+    this._label = label;
+    this.nameLabel.setText(label);
   }
 
   setTokens(tokens: number) {
@@ -193,6 +212,19 @@ export class Agent {
 
   getContainerX(): number {
     return this.container.x;
+  }
+
+  destroy() {
+    this.stopIdleAnimation();
+    this.stopLegAnimation();
+    this.stopToolAnimation();
+    if (this.speechFadeTween) {
+      this.speechFadeTween.stop();
+      this.speechFadeTween = null;
+    }
+    this.scene.tweens.killTweensOf(this.container);
+    this.speechBubble.destroy();
+    this.container.destroy();
   }
 
   // Speech bubble

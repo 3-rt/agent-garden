@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentStreamChunk, FileEvent, TaskStatus, FileSaved, AgentInfo, GardenState, GardenStats, PlantState } from '../shared/types';
+import type { AgentStreamChunk, FileEvent, TaskStatus, FileSaved, AgentInfo, GardenState, GardenStats, PlantState, CCAgentSession, HookEventType } from '../shared/types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   submitTask: (prompt: string) => ipcRenderer.send('task:submit', prompt),
@@ -39,4 +39,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSaveRequested: (callback: () => void) => {
     ipcRenderer.on('garden:request-save', () => callback());
   },
+  // Claude Code agent events
+  onCCAgentConnected: (callback: (session: CCAgentSession) => void) => {
+    ipcRenderer.on('cc-agent:connected', (_event, session) => callback(session));
+  },
+  onCCAgentActivity: (callback: (data: { agentId: string; event: HookEventType; tool?: string; file?: string; prompt?: string }) => void) => {
+    ipcRenderer.on('cc-agent:activity', (_event, data) => callback(data));
+  },
+  onCCAgentDisconnected: (callback: (data: { agentId: string; reason: string }) => void) => {
+    ipcRenderer.on('cc-agent:disconnected', (_event, data) => callback(data));
+  },
+  getCCAgents: () => ipcRenderer.invoke('cc-agents:list'),
 });

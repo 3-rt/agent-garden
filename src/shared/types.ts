@@ -1,5 +1,46 @@
-export type AgentRole = 'planter' | 'weeder' | 'tester';
+export type AgentRole = 'planter' | 'weeder' | 'tester' | 'unassigned';
 export type GardenZone = 'frontend' | 'backend' | 'tests';
+
+// Claude Code hook event types
+export type HookEventType =
+  | 'SessionStart'
+  | 'SessionEnd'
+  | 'Stop'
+  | 'PreToolUse'
+  | 'PostToolUse'
+  | 'UserPromptSubmit'
+  | 'Notification';
+
+export interface HookEvent {
+  type: HookEventType;
+  sessionId: string;
+  timestamp: number;
+  // SessionStart
+  directory?: string;
+  // PreToolUse / PostToolUse
+  tool?: string;
+  file?: string;
+  // UserPromptSubmit
+  prompt?: string;
+  // Notification
+  message?: string;
+}
+
+export type CCAgentStatus = 'idle' | 'working' | 'disconnected';
+export type CCAgentSource = 'hooks' | 'process' | 'spawned';
+
+export interface CCAgentSession {
+  agentId: string;
+  sessionId: string;
+  role: AgentRole;
+  status: CCAgentStatus;
+  source: CCAgentSource;
+  directory?: string;
+  lastActivity: number;
+  lastTool?: string;
+  lastFile?: string;
+  lastPrompt?: string;
+}
 
 export interface Task {
   id: string;
@@ -84,6 +125,11 @@ export interface ElectronAPI {
   onAgentsUpdated: (callback: (agents: AgentInfo[]) => void) => void;
   onStatsUpdated: (callback: (stats: GardenStats) => void) => void;
   onSaveRequested: (callback: () => void) => void;
+  // Claude Code agent events
+  onCCAgentConnected: (callback: (session: CCAgentSession) => void) => void;
+  onCCAgentActivity: (callback: (data: { agentId: string; event: HookEventType; tool?: string; file?: string; prompt?: string }) => void) => void;
+  onCCAgentDisconnected: (callback: (data: { agentId: string; reason: string }) => void) => void;
+  getCCAgents: () => Promise<CCAgentSession[]>;
 }
 
 declare global {

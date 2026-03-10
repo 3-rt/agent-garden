@@ -5,11 +5,17 @@ import { ClaudeApiError } from './services/claude';
 import { AgentPool } from './services/agent-pool';
 import { FileWatcher } from './services/watcher';
 import { PersistenceService } from './services/persistence';
+import { HookServer } from './services/hook-server';
+import { ClaudeCodeTracker } from './services/claude-code-tracker';
+import { ProcessScanner } from './services/process-scanner';
 
 let mainWindow: BrowserWindow | null = null;
 const pool = new AgentPool();
 const watcher = new FileWatcher();
 let persistence: PersistenceService;
+const hookServer = new HookServer();
+const ccTracker = new ClaudeCodeTracker();
+const processScanner = new ProcessScanner();
 
 // Config persistence
 const configPath = path.join(app.getPath('userData'), 'agent-garden-config.json');
@@ -211,6 +217,61 @@ app.whenReady().then(() => {
     saveConfig({ theme: themeId });
   });
 
+  // --- Claude Code Hook Server & Tracker ---
+
+  // Wire hook events to tracker
+  hookServer.on('hook', (event) => {
+    ccTracker.handleHookEvent(event);
+  });
+
+  hookServer.on('listening', (port: number) => {
+    console.log(`Hook server listening on 127.0.0.1:${port}`);
+  });
+
+  hookServer.on('error', (msg: string) => {
+    console.error(`Hook server error: ${msg}`);
+  });
+
+  // Forward tracker events to renderer
+  ccTracker.on('connected', (session) => {
+    mainWindow?.webContents.send('cc-agent:connected', session);
+  });
+
+  ccTracker.on('activity', (data) => {
+    mainWindow?.webContents.send('cc-agent:activity', data);
+  });
+
+  ccTracker.on('disconnected', (data) => {
+    mainWindow?.webContents.send('cc-agent:disconnected', data);
+  });
+
+  // IPC: get all tracked Claude Code agents
+  ipcMain.handle('cc-agents:list', () => {
+    return ccTracker.getActiveSessions();
+  });
+
+  // IPC: set role on a Claude Code agent
+  ipcMain.on('cc-agent:set-role', (_event, sessionId: string, role: string) => {
+    ccTracker.setRole(sessionId, role as any);
+  });
+
+  // --- Process Scanner ---
+
+  processScanner.on('detected', (proc) => {
+    ccTracker.registerProcessSession(proc.pid, proc.directory);
+  });
+
+  processScanner.on('exited', (pid: number) => {
+    ccTracker.removeProcessSession(pid);
+  });
+
+  // Start hook server, tracker, and process scanner
+  ccTracker.start();
+  processScanner.start();
+  hookServer.start().catch((err) => {
+    console.error('Failed to start hook server:', err.message);
+  });
+
   // Auto-save garden state periodically
   setInterval(() => {
     mainWindow?.webContents.send('garden:request-save');
@@ -219,6 +280,9 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   watcher.stop();
+  processScanner.stop();
+  ccTracker.stop();
+  hookServer.stop();
   if (process.platform !== 'darwin') app.quit();
 });
 
