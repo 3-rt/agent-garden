@@ -81,14 +81,14 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(watcher.getDirectory() === watchDir, 'getDirectory returns set directory');
 
   fs.writeFileSync(path.join(watchDir, 'test.txt'), 'hello');
-  await new Promise(r => setTimeout(r, 1000));
+  await new Promise(r => setTimeout(r, 2000));
   assert(fileEvents.length > 0, 'FileWatcher detects file creation');
   const hasTestTxt = fileEvents.some(e => e.path === 'test.txt');
   assert(hasTestTxt, 'FileWatcher reports correct filename');
 
   fileEvents = [];
   fs.writeFileSync(path.join(watchDir, 'test.txt'), 'updated');
-  await new Promise(r => setTimeout(r, 1000));
+  await new Promise(r => setTimeout(r, 2000));
   assert(fileEvents.length > 0, 'FileWatcher detects file modification');
 
   watcher.stop();

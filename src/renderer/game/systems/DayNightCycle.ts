@@ -5,18 +5,18 @@ export type Weather = 'clear' | 'rain' | 'sunshine';
 
 const CYCLE_DURATION = 120_000; // 2 minutes per full cycle
 
-const SKY_COLORS: Record<TimeOfDay, number> = {
-  dawn:  0x3d2b56,
-  day:   0x2d5a27,
-  dusk:  0x4a2c2a,
-  night: 0x0d1117,
-};
-
 const OVERLAY_ALPHA: Record<TimeOfDay, number> = {
   dawn:  0.15,
   day:   0.0,
   dusk:  0.2,
   night: 0.35,
+};
+
+const OVERLAY_COLORS: Record<TimeOfDay, number> = {
+  dawn:  0x1a1040,
+  day:   0x000000,
+  dusk:  0x2a1515,
+  night: 0x0a0a2e,
 };
 
 export class DayNightCycle {
@@ -26,18 +26,19 @@ export class DayNightCycle {
   private stars: Phaser.GameObjects.Arc[] = [];
   private rainDrops: Phaser.GameObjects.Rectangle[] = [];
   private sunRays: Phaser.GameObjects.Rectangle[] = [];
-  private _timeOfDay: TimeOfDay = 'day';
+  private _timeOfDay: TimeOfDay = 'dawn'; // match initial progress=0
   private _weather: Weather = 'clear';
   private elapsed = 0;
   private rainTimer: Phaser.Time.TimerEvent | null = null;
-  private sunshineTimer: Phaser.Time.TimerEvent | null = null;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    const { width, height } = scene.scale;
+    const width = scene.cameras.main.width;
+    const height = scene.cameras.main.height;
 
-    // Full-screen tint overlay
-    this.overlay = scene.add.rectangle(width / 2, height / 2, width, height, 0x000033, 0)
+    // Full-screen tint overlay — starts fully transparent
+    this.overlay = scene.add.rectangle(width / 2, height / 2, width * 2, height * 2, OVERLAY_COLORS.dawn)
+      .setAlpha(OVERLAY_ALPHA.dawn)
       .setDepth(200)
       .setScrollFactor(0);
 
@@ -83,7 +84,7 @@ export class DayNightCycle {
     }
 
     // Animate sun/moon position
-    const { width } = this.scene.scale;
+    const width = this.scene.cameras.main.width;
     const angle = progress * Math.PI * 2 - Math.PI / 2;
     const cx = width / 2;
     const rx = width * 0.4;
@@ -93,17 +94,14 @@ export class DayNightCycle {
   }
 
   private transitionTo(tod: TimeOfDay) {
-    const alpha = OVERLAY_ALPHA[tod];
-    const color = SKY_COLORS[tod];
+    const targetAlpha = OVERLAY_ALPHA[tod];
+    const color = OVERLAY_COLORS[tod];
 
-    this.overlay.setFillStyle(
-      tod === 'night' ? 0x0a0a2e : tod === 'dusk' ? 0x2a1515 : tod === 'dawn' ? 0x1a1040 : 0x000000,
-      1,
-    );
+    this.overlay.setFillStyle(color);
 
     this.scene.tweens.add({
       targets: this.overlay,
-      alpha,
+      alpha: targetAlpha,
       duration: 2000,
       ease: 'Sine.easeInOut',
     });
@@ -132,7 +130,6 @@ export class DayNightCycle {
     if (this._weather === weather) return;
     this._weather = weather;
 
-    // Clean up previous weather
     this.stopRain();
     this.stopSunshine();
 
@@ -147,7 +144,8 @@ export class DayNightCycle {
   }
 
   private startRain() {
-    const { width, height } = this.scene.scale;
+    const width = this.scene.cameras.main.width;
+    const height = this.scene.cameras.main.height;
 
     this.rainTimer = this.scene.time.addEvent({
       delay: 50,
@@ -190,9 +188,8 @@ export class DayNightCycle {
   }
 
   private startSunshine() {
-    const { width } = this.scene.scale;
+    const width = this.scene.cameras.main.width;
 
-    // Create sun rays
     for (let i = 0; i < 5; i++) {
       const ray = this.scene.add.rectangle(
         width / 2 + (i - 2) * 60,

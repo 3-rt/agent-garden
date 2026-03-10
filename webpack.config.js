@@ -1,5 +1,6 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 const commonConfig = {
   module: {
@@ -52,6 +53,14 @@ const rendererConfig = {
     new HtmlWebpackPlugin({
       template: './src/renderer/index.html',
       filename: 'renderer/index.html',
+    }),
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: 'src/renderer/assets',
+          to: 'renderer/assets',
+        },
+      ],
     }),
   ],
 };

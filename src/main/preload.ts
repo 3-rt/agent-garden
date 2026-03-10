@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentStreamChunk, FileEvent, TaskStatus, FileSaved, AgentInfo, GardenState, GardenStats, PlantState, CCAgentSession, HookEventType } from '../shared/types';
+import type { AgentStreamChunk, FileEvent, TaskStatus, FileSaved, AgentInfo, GardenState, GardenStats, PlantState, CCAgentSession, HookEventType, AgentRole, OrchestrationPlan, OrchestrationSubtask } from '../shared/types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   submitTask: (prompt: string) => ipcRenderer.send('task:submit', prompt),
@@ -50,4 +50,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('cc-agent:disconnected', (_event, data) => callback(data));
   },
   getCCAgents: () => ipcRenderer.invoke('cc-agents:list'),
+  // Spawning & lifecycle
+  spawnAgent: (role: AgentRole, prompt?: string, directory?: string) =>
+    ipcRenderer.invoke('cc-agent:spawn', role, prompt, directory),
+  stopAgent: (sessionId: string) => ipcRenderer.send('cc-agent:stop', sessionId),
+  openTerminal: (sessionId: string) => ipcRenderer.send('cc-agent:open-terminal', sessionId),
+  detectClaude: () => ipcRenderer.invoke('cc-agent:detect-claude'),
+  onCCAgentSpawned: (callback: (data: { agentId: string; sessionId: string; role: AgentRole; directory: string; prompt?: string }) => void) => {
+    ipcRenderer.on('cc-agent:spawned', (_event, data) => callback(data));
+  },
+  onCCAgentOutput: (callback: (data: { agentId: string; sessionId: string; text: string }) => void) => {
+    ipcRenderer.on('cc-agent:output', (_event, data) => callback(data));
+  },
+  onCCAgentExited: (callback: (data: { agentId: string; sessionId: string; code: number | null }) => void) => {
+    ipcRenderer.on('cc-agent:exited', (_event, data) => callback(data));
+  },
+  // Head Gardener orchestration
+  submitGoal: (goal: string) => ipcRenderer.invoke('head-gardener:submit-goal', goal),
+  getPlans: () => ipcRenderer.invoke('head-gardener:get-plans'),
+  onPlanCreated: (callback: (plan: OrchestrationPlan) => void) => {
+    ipcRenderer.on('head-gardener:plan-created', (_event, plan) => callback(plan));
+  },
+  onSubtaskUpdated: (callback: (data: { planId: string; subtask: OrchestrationSubtask }) => void) => {
+    ipcRenderer.on('head-gardener:subtask-updated', (_event, data) => callback(data));
+  },
+  onPlanCompleted: (callback: (plan: OrchestrationPlan) => void) => {
+    ipcRenderer.on('head-gardener:plan-completed', (_event, plan) => callback(plan));
+  },
 });

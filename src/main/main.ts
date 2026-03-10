@@ -1,28 +1,28 @@
-import { app, BrowserWindow, ipcMain, dialog, safeStorage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { ClaudeApiError } from './services/claude';
-import { AgentPool } from './services/agent-pool';
 import { FileWatcher } from './services/watcher';
 import { PersistenceService } from './services/persistence';
 import { HookServer } from './services/hook-server';
 import { ClaudeCodeTracker } from './services/claude-code-tracker';
 import { ProcessScanner } from './services/process-scanner';
+import { ClaudeCodeManager } from './services/claude-code-manager';
+import { HeadGardener } from './services/head-gardener';
 
 let mainWindow: BrowserWindow | null = null;
-const pool = new AgentPool();
 const watcher = new FileWatcher();
 let persistence: PersistenceService;
 const hookServer = new HookServer();
 const ccTracker = new ClaudeCodeTracker();
 const processScanner = new ProcessScanner();
+const ccManager = new ClaudeCodeManager();
+let headGardener: HeadGardener;
 
 // Config persistence
 const configPath = path.join(app.getPath('userData'), 'agent-garden-config.json');
 
 interface AppConfig {
   watchDirectory: string;
-  encryptedApiKey?: string;
   theme?: string;
 }
 
@@ -44,78 +44,10 @@ function saveConfig(config: Partial<AppConfig>) {
   writeFileSync(configPath, JSON.stringify(merged, null, 2));
 }
 
-function loadApiKey(): string | null {
-  const config = loadConfig();
-  if (!config.encryptedApiKey) return null;
-  try {
-    const buf = Buffer.from(config.encryptedApiKey, 'base64');
-    return safeStorage.decryptString(buf);
-  } catch {
-    return null;
-  }
-}
-
-function saveApiKey(key: string) {
-  const encrypted = safeStorage.encryptString(key).toString('base64');
-  saveConfig({ encryptedApiKey: encrypted });
-}
-
 function startWatcher(directory: string) {
   watcher.start(directory, (event) => {
     mainWindow?.webContents.send('file:event', event);
   });
-}
-
-async function processTask(taskId: string, prompt: string) {
-  const { role } = pool.routeTask(prompt);
-  const agentId = `agent-${role}`;
-
-  mainWindow?.webContents.send('task:status', { taskId, agentId, status: 'in-progress' });
-
-  try {
-    const { result } = await pool.submitTask(prompt, (aid, text, done) => {
-      mainWindow?.webContents.send('agent:stream', { taskId, agentId: aid, text, done });
-    });
-
-    // Save generated file
-    if (result.filename) {
-      const dir = watcher.getDirectory();
-      const { ClaudeService } = require('./services/claude');
-      const saver = new ClaudeService();
-      const filePath = await saver.saveToFile(dir, result.filename, result.content);
-      mainWindow?.webContents.send('file:saved', {
-        taskId,
-        agentId,
-        filename: result.filename,
-        path: filePath,
-      });
-      persistence.recordFileCreated();
-    }
-
-    // Track stats
-    const tokenEstimate = Math.ceil((prompt.length + (result.content?.length || 0)) / 4);
-    persistence.recordTokens(tokenEstimate);
-    persistence.recordTaskCompleted();
-
-    // Send updated agent info and stats
-    mainWindow?.webContents.send('agents:updated', pool.getAgentInfo());
-    mainWindow?.webContents.send('stats:updated', persistence.getStats());
-    mainWindow?.webContents.send('task:status', { taskId, agentId, status: 'complete' });
-  } catch (err: any) {
-    const message = err instanceof ClaudeApiError ? err.message : `${err}`;
-
-    persistence.recordTaskFailed();
-    mainWindow?.webContents.send('stats:updated', persistence.getStats());
-
-    mainWindow?.webContents.send('agent:stream', {
-      taskId,
-      agentId,
-      text: `Error: ${message}`,
-      done: true,
-    });
-    mainWindow?.webContents.send('agent:error', { taskId, agentId, message });
-    mainWindow?.webContents.send('task:status', { taskId, agentId, status: 'error' });
-  }
 }
 
 function createWindow() {
@@ -139,23 +71,11 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  // Load persisted API key
-  const storedKey = loadApiKey();
-  if (storedKey) {
-    pool.setApiKey(storedKey);
-  }
-
   // Start file watcher with persisted directory
   const config = loadConfig();
   startWatcher(config.watchDirectory);
   mainWindow?.webContents.on('did-finish-load', () => {
     mainWindow?.webContents.send('directory:changed', config.watchDirectory);
-  });
-
-  // Task submission
-  ipcMain.on('task:submit', (_event, prompt: string) => {
-    const taskId = Date.now().toString();
-    processTask(taskId, prompt);
   });
 
   // Directory picker
@@ -169,6 +89,7 @@ app.whenReady().then(() => {
     const dir = result.filePaths[0];
     startWatcher(dir);
     saveConfig({ watchDirectory: dir });
+    headGardener?.setDefaultDirectory(dir);
     mainWindow?.webContents.send('directory:changed', dir);
     return dir;
   });
@@ -176,27 +97,6 @@ app.whenReady().then(() => {
   ipcMain.on('watcher:set-directory', (_event, directory: string) => {
     startWatcher(directory);
     saveConfig({ watchDirectory: directory });
-  });
-
-  // API key management
-  ipcMain.on('api-key:set', (_event, key: string) => {
-    pool.setApiKey(key);
-    saveApiKey(key);
-  });
-
-  ipcMain.handle('api-key:has', () => {
-    return pool.hasApiKey();
-  });
-
-  // Agent info
-  ipcMain.handle('agents:info', () => {
-    return pool.getAgentInfo();
-  });
-
-  // Reset token count
-  ipcMain.on('agent:reset-tokens', (_event, agentId: string) => {
-    pool.resetTokens(agentId);
-    mainWindow?.webContents.send('agents:updated', pool.getAgentInfo());
   });
 
   // Garden persistence
@@ -265,6 +165,79 @@ app.whenReady().then(() => {
     ccTracker.removeProcessSession(pid);
   });
 
+  // --- Claude Code Manager (Spawning) ---
+
+  ccManager.on('spawned', (data) => {
+    // Register spawned agent in tracker
+    ccTracker.registerSpawnedSession(data.sessionId, data.role, data.directory);
+    mainWindow?.webContents.send('cc-agent:spawned', data);
+  });
+
+  ccManager.on('output', (data) => {
+    mainWindow?.webContents.send('cc-agent:output', data);
+    // Also show as activity in the garden
+    mainWindow?.webContents.send('cc-agent:activity', {
+      agentId: data.agentId,
+      event: 'PostToolUse',
+      tool: 'output',
+    });
+  });
+
+  ccManager.on('exited', (data) => {
+    ccTracker.removeSpawnedSession(data.sessionId);
+    mainWindow?.webContents.send('cc-agent:exited', data);
+  });
+
+  ccManager.on('error', (msg: string) => {
+    console.error('ClaudeCodeManager:', msg);
+  });
+
+  // IPC: spawn a new Claude Code agent
+  ipcMain.handle('cc-agent:spawn', async (_event, role: string, prompt?: string, directory?: string) => {
+    const dir = directory || watcher.getDirectory();
+    return ccManager.spawn({ role: role as any, prompt, directory: dir });
+  });
+
+  // IPC: stop a spawned agent
+  ipcMain.on('cc-agent:stop', (_event, sessionId: string) => {
+    ccManager.stop(sessionId);
+  });
+
+  // IPC: open terminal for a spawned agent
+  ipcMain.on('cc-agent:open-terminal', (_event, sessionId: string) => {
+    ccManager.openTerminal(sessionId);
+  });
+
+  // IPC: check if claude CLI is installed
+  ipcMain.handle('cc-agent:detect-claude', async () => {
+    const path = await ccManager.detectClaude();
+    return path !== null;
+  });
+
+  // --- Head Gardener Orchestrator ---
+
+  headGardener = new HeadGardener(ccTracker, ccManager, config.watchDirectory);
+
+  headGardener.on('plan-created', (plan) => {
+    mainWindow?.webContents.send('head-gardener:plan-created', plan);
+  });
+
+  headGardener.on('subtask-updated', (data) => {
+    mainWindow?.webContents.send('head-gardener:subtask-updated', data);
+  });
+
+  headGardener.on('plan-completed', (plan) => {
+    mainWindow?.webContents.send('head-gardener:plan-completed', plan);
+  });
+
+  ipcMain.handle('head-gardener:submit-goal', async (_event, goal: string) => {
+    return headGardener.submitGoal(goal);
+  });
+
+  ipcMain.handle('head-gardener:get-plans', () => {
+    return headGardener.getAllPlans();
+  });
+
   // Start hook server, tracker, and process scanner
   ccTracker.start();
   processScanner.start();
@@ -279,6 +252,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  ccManager.stopAll();
   watcher.stop();
   processScanner.stop();
   ccTracker.stop();

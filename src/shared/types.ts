@@ -42,6 +42,23 @@ export interface CCAgentSession {
   lastPrompt?: string;
 }
 
+export interface OrchestrationSubtask {
+  id: string;
+  prompt: string;
+  role: AgentRole;
+  status: 'pending' | 'assigned' | 'complete' | 'error';
+  agentId?: string;
+  sessionId?: string;
+}
+
+export interface OrchestrationPlan {
+  id: string;
+  goal: string;
+  subtasks: OrchestrationSubtask[];
+  status: 'planning' | 'in-progress' | 'complete' | 'error';
+  createdAt: number;
+}
+
 export interface Task {
   id: string;
   prompt: string;
@@ -130,6 +147,20 @@ export interface ElectronAPI {
   onCCAgentActivity: (callback: (data: { agentId: string; event: HookEventType; tool?: string; file?: string; prompt?: string }) => void) => void;
   onCCAgentDisconnected: (callback: (data: { agentId: string; reason: string }) => void) => void;
   getCCAgents: () => Promise<CCAgentSession[]>;
+  // Spawning & lifecycle
+  spawnAgent: (role: AgentRole, prompt?: string, directory?: string) => Promise<{ agentId: string; sessionId: string } | null>;
+  stopAgent: (sessionId: string) => void;
+  openTerminal: (sessionId: string) => void;
+  detectClaude: () => Promise<boolean>;
+  onCCAgentSpawned: (callback: (data: { agentId: string; sessionId: string; role: AgentRole; directory: string; prompt?: string }) => void) => void;
+  onCCAgentOutput: (callback: (data: { agentId: string; sessionId: string; text: string }) => void) => void;
+  onCCAgentExited: (callback: (data: { agentId: string; sessionId: string; code: number | null }) => void) => void;
+  // Head Gardener orchestration
+  submitGoal: (goal: string) => Promise<OrchestrationPlan>;
+  getPlans: () => Promise<OrchestrationPlan[]>;
+  onPlanCreated: (callback: (plan: OrchestrationPlan) => void) => void;
+  onSubtaskUpdated: (callback: (data: { planId: string; subtask: OrchestrationSubtask }) => void) => void;
+  onPlanCompleted: (callback: (plan: OrchestrationPlan) => void) => void;
 }
 
 declare global {

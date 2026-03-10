@@ -129,6 +129,32 @@ export class ClaudeCodeTracker extends EventEmitter {
     this.removeSession(sessionId, 'process exited');
   }
 
+  /**
+   * Register a spawned session (launched by ClaudeCodeManager).
+   */
+  registerSpawnedSession(sessionId: string, role: AgentRole, directory?: string): void {
+    if (this.sessions.has(sessionId)) return;
+
+    const session: CCAgentSession = {
+      agentId: `cc-${sessionId}`,
+      sessionId,
+      role,
+      status: 'working',
+      source: 'spawned',
+      directory,
+      lastActivity: Date.now(),
+    };
+    this.sessions.set(sessionId, session);
+    this.emit('connected', { ...session });
+  }
+
+  /**
+   * Remove a spawned session when the process exits.
+   */
+  removeSpawnedSession(sessionId: string): void {
+    this.removeSession(sessionId, 'spawned process exited');
+  }
+
   setRole(sessionId: string, role: AgentRole): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;

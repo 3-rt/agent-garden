@@ -1,29 +1,18 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GardenGame } from './game/GardenGame';
-import { TaskInput } from './components/TaskInput';
 import { DirectoryPicker } from './components/DirectoryPicker';
-import { OutputPanel, TaskHistoryEntry } from './components/OutputPanel';
-import { ApiKeyModal } from './components/ApiKeyModal';
 import { StatsPanel, GardenStatsData } from './components/StatsPanel';
 import { ThemePicker } from './components/ThemePicker';
 import { ThemeManager } from './game/systems/ThemeManager';
-import type { AgentInfo, CCAgentSession } from '../shared/types';
+import type { CCAgentSession, OrchestrationPlan } from '../shared/types';
 
 const availableThemes = ThemeManager.getAvailableThemes();
 
 export function App() {
   const gameContainerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GardenGame | null>(null);
-  const [streamText, setStreamText] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
   const [directory, setDirectory] = useState('');
-  const [savedFile, setSavedFile] = useState('');
-  const [history, setHistory] = useState<TaskHistoryEntry[]>([]);
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [lastPrompt, setLastPrompt] = useState('');
   const [lastError, setLastError] = useState('');
-  const [agentInfos, setAgentInfos] = useState<AgentInfo[]>([]);
-  const [activeAgentId, setActiveAgentId] = useState('');
   const [stats, setStats] = useState<GardenStatsData>({
     filesCreated: 0,
     tasksCompleted: 0,
@@ -33,6 +22,8 @@ export function App() {
   });
   const [currentTheme, setCurrentTheme] = useState('garden');
   const [ccAgents, setCCAgents] = useState<CCAgentSession[]>([]);
+  const [plans, setPlans] = useState<OrchestrationPlan[]>([]);
+  const [goalInput, setGoalInput] = useState('');
 
   useEffect(() => {
     if (gameContainerRef.current && !gameRef.current) {
@@ -55,24 +46,8 @@ export function App() {
       }, 500);
     }
 
-    window.electronAPI?.getHasApiKey().then((has) => {
-      if (!has && !process.env.ANTHROPIC_API_KEY) {
-        setShowKeyModal(true);
-      }
-    });
-
-    // Load initial agent info and stats
-    window.electronAPI?.getAgentInfo().then((infos) => setAgentInfos(infos));
+    // Load initial stats
     window.electronAPI?.getStats().then((s) => setStats(s));
-
-    window.electronAPI?.onAgentStream((chunk) => {
-      if (!chunk.done) {
-        setStreamText((prev) => prev + chunk.text);
-        gameRef.current?.onAgentThought(chunk.agentId, chunk.text);
-      } else {
-        gameRef.current?.onTaskComplete(chunk.agentId);
-      }
-    });
 
     window.electronAPI?.onFileEvent((event) => {
       if (event.type === 'created') {
@@ -82,51 +57,7 @@ export function App() {
       }
     });
 
-    window.electronAPI?.onTaskStatus((status) => {
-      if (status.status === 'in-progress') {
-        setIsProcessing(true);
-        setLastError('');
-        setActiveAgentId(status.agentId);
-        gameRef.current?.onTaskStart(status.agentId);
-      } else if (status.status === 'complete') {
-        setIsProcessing(false);
-      } else if (status.status === 'error') {
-        setIsProcessing(false);
-      }
-    });
-
-    window.electronAPI?.onFileSaved((info) => {
-      setSavedFile(info.filename);
-      setStreamText((current) => {
-        setHistory((prev) => {
-          const entry: TaskHistoryEntry = {
-            taskId: info.taskId,
-            prompt: lastPrompt,
-            code: current,
-            filename: info.filename,
-            timestamp: Date.now(),
-          };
-          const updated = [...prev, entry];
-          return updated.slice(-50);
-        });
-        return current;
-      });
-    });
-
     window.electronAPI?.onDirectoryChanged((dir) => setDirectory(dir));
-
-    window.electronAPI?.onAgentError((error) => {
-      setLastError(error.message);
-      gameRef.current?.onError(error.agentId);
-    });
-
-    window.electronAPI?.onAgentsUpdated((agents) => {
-      setAgentInfos(agents);
-      for (const agent of agents) {
-        gameRef.current?.updateAgentTokens(agent.id, agent.totalTokens);
-      }
-    });
-
     window.electronAPI?.onStatsUpdated((s) => setStats(s));
 
     // Claude Code agent events
@@ -149,7 +80,6 @@ export function App() {
     });
 
     window.electronAPI?.onCCAgentActivity((data) => {
-      // Build a display string from the event
       let detail: string | undefined;
       if (data.prompt) detail = data.prompt;
       else if (data.tool && data.file) detail = `${data.tool}: ${data.file}`;
@@ -163,6 +93,40 @@ export function App() {
       gameRef.current?.removeAgent(data.agentId);
     });
 
+    window.electronAPI?.onCCAgentOutput((data) => {
+      gameRef.current?.onAgentThought(data.agentId, data.text);
+    });
+
+    window.electronAPI?.onCCAgentExited((data) => {
+      gameRef.current?.showActivity(data.agentId, 'Stop', 'Finished');
+    });
+
+    // Head Gardener orchestration events
+    window.electronAPI?.getPlans().then((p) => setPlans(p));
+
+    window.electronAPI?.onPlanCreated((plan) => {
+      setPlans((prev) => [...prev, plan]);
+    });
+
+    window.electronAPI?.onSubtaskUpdated((data) => {
+      setPlans((prev) =>
+        prev.map((p) =>
+          p.id === data.planId
+            ? {
+                ...p,
+                subtasks: p.subtasks.map((s) =>
+                  s.id === data.subtask.id ? data.subtask : s
+                ),
+              }
+            : p
+        )
+      );
+    });
+
+    window.electronAPI?.onPlanCompleted((plan) => {
+      setPlans((prev) => prev.map((p) => (p.id === plan.id ? plan : p)));
+    });
+
     // Auto-save: listen for periodic save requests from main process
     window.electronAPI?.onSaveRequested(() => {
       if (gameRef.current) {
@@ -173,7 +137,6 @@ export function App() {
     });
 
     return () => {
-      // Save state on unmount
       if (gameRef.current) {
         const plants = gameRef.current.getPlantStates();
         const theme = gameRef.current.getThemeId();
@@ -184,29 +147,34 @@ export function App() {
     };
   }, []);
 
-  const handleSubmitTask = useCallback((prompt: string) => {
-    setStreamText('');
-    setSavedFile('');
-    setLastError('');
-    setLastPrompt(prompt);
-    window.electronAPI?.submitTask(prompt);
-  }, []);
-
-  const handleRetry = useCallback(() => {
-    if (lastPrompt) {
-      handleSubmitTask(lastPrompt);
-    }
-  }, [lastPrompt, handleSubmitTask]);
-
-  const handleSaveApiKey = useCallback((key: string) => {
-    window.electronAPI?.setApiKey(key);
-    setShowKeyModal(false);
-  }, []);
-
   const handleThemeChange = useCallback((themeId: string) => {
     setCurrentTheme(themeId);
     gameRef.current?.setTheme(themeId);
     window.electronAPI?.setTheme(themeId);
+  }, []);
+
+  const handleSubmitGoal = useCallback(async () => {
+    if (!goalInput.trim()) return;
+    const goal = goalInput.trim();
+    setGoalInput('');
+    await window.electronAPI?.submitGoal(goal);
+  }, [goalInput]);
+
+  const handleSpawnAgent = useCallback(async () => {
+    const prompt = window.prompt('Task for the new agent (leave empty for interactive):');
+    if (prompt === null) return;
+    const result = await window.electronAPI?.spawnAgent('unassigned', prompt || undefined, directory || undefined);
+    if (!result) {
+      setLastError('Failed to spawn agent. Is Claude CLI installed?');
+    }
+  }, [directory]);
+
+  const handleStopAgent = useCallback((sessionId: string) => {
+    window.electronAPI?.stopAgent(sessionId);
+  }, []);
+
+  const handleOpenTerminal = useCallback((sessionId: string) => {
+    window.electronAPI?.openTerminal(sessionId);
   }, []);
 
   const roleColor: Record<string, string> = {
@@ -220,24 +188,12 @@ export function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {showKeyModal && (
-        <ApiKeyModal
-          onSave={handleSaveApiKey}
-          onDemoMode={() => setShowKeyModal(false)}
-        />
-      )}
       <div
         ref={gameContainerRef}
         style={{ flex: 1, minHeight: 0 }}
       />
-      <OutputPanel
-        currentCode={streamText}
-        currentFile={savedFile}
-        history={history}
-        isProcessing={isProcessing}
-      />
       <div style={{ padding: '8px 16px', background: '#16213e', borderTop: '2px solid #0f3460' }}>
-        {/* Agent status bar */}
+        {/* Claude Code agent status bar */}
         <div style={{
           display: 'flex',
           gap: '12px',
@@ -245,33 +201,6 @@ export function App() {
           fontSize: '11px',
           fontFamily: 'monospace',
         }}>
-          {agentInfos.map((agent) => (
-            <div
-              key={agent.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '2px 8px',
-                background: agent.busy ? '#1a2a1a' : '#0d1117',
-                borderRadius: '3px',
-                border: `1px solid ${agent.id === activeAgentId && isProcessing ? roleColor[agent.role] || '#555' : '#333'}`,
-                color: roleColor[agent.role] || '#aaa',
-              }}
-            >
-              <span style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: agent.busy ? '#ffca28' : '#66bb6a',
-                display: 'inline-block',
-              }} />
-              <span>{agent.role}</span>
-              <span style={{ color: '#666', fontSize: '10px' }}>
-                {Math.round(agent.totalTokens / 1000)}k
-              </span>
-            </div>
-          ))}
           {ccAgents.map((agent) => (
             <div
               key={agent.agentId}
@@ -295,10 +224,44 @@ export function App() {
               }} />
               <span>{agent.directory ? agent.directory.split('/').pop() : agent.role}</span>
               <span style={{ color: '#666', fontSize: '10px' }}>
-                {agent.source === 'process' ? 'ps' : 'hook'}
+                {agent.source === 'process' ? 'ps' : agent.source === 'spawned' ? 'spawned' : 'hook'}
               </span>
+              {agent.source === 'spawned' && (
+                <>
+                  <button
+                    onClick={() => handleOpenTerminal(agent.sessionId)}
+                    style={{
+                      padding: '0 4px', background: 'transparent', border: '1px solid #444',
+                      borderRadius: '2px', color: '#7ec8e3', fontSize: '9px', cursor: 'pointer', fontFamily: 'monospace',
+                    }}
+                    title="Open in terminal"
+                  >term</button>
+                  <button
+                    onClick={() => handleStopAgent(agent.sessionId)}
+                    style={{
+                      padding: '0 4px', background: 'transparent', border: '1px solid #4a1515',
+                      borderRadius: '2px', color: '#ef5350', fontSize: '9px', cursor: 'pointer', fontFamily: 'monospace',
+                    }}
+                    title="Stop agent"
+                  >stop</button>
+                </>
+              )}
             </div>
           ))}
+          <button
+            onClick={handleSpawnAgent}
+            style={{
+              padding: '2px 8px',
+              background: '#0d1117',
+              border: '1px solid #388e3c',
+              borderRadius: '3px',
+              color: '#66bb6a',
+              fontFamily: 'monospace',
+              fontSize: '11px',
+              cursor: 'pointer',
+            }}
+            title="Spawn a new Claude Code agent"
+          >+ Agent</button>
           <div style={{ marginLeft: 'auto' }}>
             <ThemePicker
               currentTheme={currentTheme}
@@ -307,6 +270,90 @@ export function App() {
             />
           </div>
         </div>
+        {/* Head Gardener: goal input + plan status */}
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          marginBottom: '6px',
+          alignItems: 'center',
+        }}>
+          <input
+            type="text"
+            value={goalInput}
+            onChange={(e) => setGoalInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitGoal(); }}
+            placeholder="Submit a goal to the Head Gardener..."
+            style={{
+              flex: 1,
+              padding: '4px 8px',
+              background: '#0d1117',
+              border: '1px solid #388e3c',
+              borderRadius: '3px',
+              color: '#c9d1d9',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              outline: 'none',
+            }}
+          />
+          <button
+            onClick={handleSubmitGoal}
+            disabled={!goalInput.trim()}
+            style={{
+              padding: '4px 12px',
+              background: '#1b5e20',
+              border: 'none',
+              borderRadius: '3px',
+              color: '#a5d6a7',
+              fontFamily: 'monospace',
+              fontSize: '11px',
+              cursor: goalInput.trim() ? 'pointer' : 'default',
+              opacity: goalInput.trim() ? 1 : 0.5,
+            }}
+          >
+            Delegate
+          </button>
+        </div>
+        {plans.filter((p) => p.status === 'in-progress').map((plan) => (
+          <div key={plan.id} style={{
+            marginBottom: '4px',
+            padding: '4px 8px',
+            background: '#0d1117',
+            borderRadius: '3px',
+            border: '1px solid #1b5e20',
+            fontSize: '11px',
+            fontFamily: 'monospace',
+            color: '#a5d6a7',
+          }}>
+            <div style={{ marginBottom: '2px', color: '#66bb6a' }}>
+              {plan.goal}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {plan.subtasks.map((st) => (
+                <span key={st.id} style={{
+                  padding: '1px 6px',
+                  borderRadius: '2px',
+                  background: st.status === 'complete' ? '#1b5e20'
+                    : st.status === 'error' ? '#4a1515'
+                    : st.status === 'assigned' ? '#1a1a2a'
+                    : '#0d1117',
+                  color: st.status === 'complete' ? '#66bb6a'
+                    : st.status === 'error' ? '#ef5350'
+                    : st.status === 'assigned' ? '#7ec8e3'
+                    : '#666',
+                  border: `1px solid ${
+                    st.status === 'complete' ? '#388e3c'
+                    : st.status === 'error' ? '#4a1515'
+                    : st.status === 'assigned' ? '#0f3460'
+                    : '#333'
+                  }`,
+                }}>
+                  {st.role}: {st.prompt.slice(0, 40)}{st.prompt.length > 40 ? '...' : ''}
+                  {st.status === 'complete' ? ' done' : st.status === 'error' ? ' err' : st.status === 'assigned' ? ' ...' : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
         {lastError && (
           <div style={{
             display: 'flex',
@@ -322,42 +369,10 @@ export function App() {
             color: '#ef5350',
           }}>
             <span style={{ flex: 1 }}>{lastError}</span>
-            <button
-              onClick={handleRetry}
-              disabled={isProcessing}
-              style={{
-                padding: '2px 10px',
-                background: '#4a1515',
-                border: 'none',
-                borderRadius: '3px',
-                color: '#ef9a9a',
-                fontFamily: 'monospace',
-                fontSize: '11px',
-                cursor: 'pointer',
-              }}
-            >
-              Retry
-            </button>
           </div>
         )}
-        <TaskInput onSubmit={handleSubmitTask} disabled={isProcessing} />
-        <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ marginTop: '6px' }}>
           <DirectoryPicker directory={directory} />
-          <button
-            onClick={() => setShowKeyModal(true)}
-            style={{
-              padding: '2px 8px',
-              background: 'transparent',
-              border: '1px solid #0f3460',
-              borderRadius: '3px',
-              color: '#7ec8e3',
-              fontFamily: 'monospace',
-              fontSize: '11px',
-              cursor: 'pointer',
-            }}
-          >
-            API Key
-          </button>
         </div>
       </div>
       <StatsPanel stats={stats} plantCount={plantCount} />

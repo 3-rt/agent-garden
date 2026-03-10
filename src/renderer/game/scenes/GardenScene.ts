@@ -28,9 +28,10 @@ export class GardenScene extends Phaser.Scene {
   private dayNight!: DayNightCycle;
   private timeLapse = new TimeLapse();
   private themeManager = new ThemeManager();
-  private groundTiles: Phaser.GameObjects.Rectangle[] = [];
-  private pathTiles: Phaser.GameObjects.Rectangle[] = [];
+  private groundTiles: Phaser.GameObjects.Image[] = [];
+  private pathTiles: Phaser.GameObjects.Image[] = [];
   private titleText!: Phaser.GameObjects.Text;
+
   private snapshotInterval = 10_000; // snapshot every 10s
   private lastSnapshotTime = 0;
 
@@ -45,23 +46,25 @@ export class GardenScene extends Phaser.Scene {
       const width = cam.width || this.scale.width || 800;
       const height = cam.height || this.scale.height || 600;
       const theme = this.themeManager.current;
+      const TILE_SIZE = 32;
 
-      // Draw ground grid
-      for (let x = 0; x < width; x += 32) {
-        for (let y = 0; y < height; y += 32) {
-          const isEven = ((x / 32 + y / 32) % 2 === 0);
-          const tile = this.add.rectangle(
-            x + 16, y + 16, 32, 32,
-            isEven ? theme.groundLight : theme.groundDark,
-          );
-          this.groundTiles.push(tile);
+      // Draw ground with colored rectangles (reliable, theme-friendly)
+      for (let x = 0; x < width; x += TILE_SIZE) {
+        for (let y = 0; y < height; y += TILE_SIZE) {
+          const shade = ((x / TILE_SIZE + y / TILE_SIZE) % 2 === 0)
+            ? theme.groundLight
+            : theme.groundDark;
+          const tile = this.add.rectangle(x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, shade)
+            .setDepth(0);
+          this.groundTiles.push(tile as any);
         }
       }
 
-      // Garden path
-      for (let x = 0; x < width; x += 32) {
-        const tile = this.add.rectangle(x + 16, height / 2, 32, 32, theme.pathColor);
-        this.pathTiles.push(tile);
+      // Garden path (horizontal strip at mid-height)
+      for (let x = 0; x < width; x += TILE_SIZE) {
+        const tile = this.add.rectangle(x + TILE_SIZE / 2, height / 2, TILE_SIZE, TILE_SIZE, theme.pathColor)
+          .setDepth(1);
+        this.pathTiles.push(tile as any);
       }
 
       // Initialize zone plant slot counters
@@ -323,22 +326,19 @@ export class GardenScene extends Phaser.Scene {
   }
 
   private applyTheme(theme: GardenTheme) {
-    // Update ground tiles
-    let i = 0;
-    const { width, height } = this.scale;
-    for (let x = 0; x < width; x += 32) {
-      for (let y = 0; y < height; y += 32) {
-        if (i < this.groundTiles.length) {
-          const isEven = ((x / 32 + y / 32) % 2 === 0);
-          this.groundTiles[i].setFillStyle(isEven ? theme.groundLight : theme.groundDark);
-          i++;
-        }
-      }
+    // Recolor ground tiles (alternating light/dark)
+    const TILE_SIZE = 32;
+    for (const tile of this.groundTiles) {
+      const rect = tile as unknown as Phaser.GameObjects.Rectangle;
+      const col = Math.round((rect.x - TILE_SIZE / 2) / TILE_SIZE);
+      const row = Math.round((rect.y - TILE_SIZE / 2) / TILE_SIZE);
+      const shade = ((col + row) % 2 === 0) ? theme.groundLight : theme.groundDark;
+      rect.setFillStyle(shade);
     }
 
-    // Path
+    // Recolor path tiles
     for (const tile of this.pathTiles) {
-      tile.setFillStyle(theme.pathColor);
+      (tile as unknown as Phaser.GameObjects.Rectangle).setFillStyle(theme.pathColor);
     }
 
     // Title
