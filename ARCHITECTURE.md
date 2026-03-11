@@ -116,6 +116,9 @@ No centralized store. State distributed across three layers:
 | Renderer → Main | `cc-agent:detect-claude` | (returns `boolean`) |
 | Renderer → Main | `cc-agents:list` | (returns `CCAgentSession[]`) |
 | Renderer → Main | `dialog:select-directory` | (opens native dialog) |
+| Renderer → Main | `directory:add` | (opens dialog, returns `string \| null`) |
+| Renderer → Main | `directory:remove` | `dir: string` |
+| Renderer → Main | `directory:list` | (returns `{ primary, additional[] }`) |
 | Renderer → Main | `garden:save` | `plants, theme` |
 | Renderer → Main | `garden:set-theme` | `themeId` |
 | Main → Renderer | `cc-agent:connected` | `CCAgentSession` |
@@ -129,6 +132,7 @@ No centralized store. State distributed across three layers:
 | Main → Renderer | `head-gardener:plan-completed` | `OrchestrationPlan` |
 | Main → Renderer | `file:event` | `{ type, path }` |
 | Main → Renderer | `directory:changed` | `dir: string` |
+| Main → Renderer | `directories:updated` | `{ primary: string, additional: string[] }` |
 | Main → Renderer | `stats:updated` | `GardenStats` |
 | Main → Renderer | `garden:request-save` | (trigger auto-save) |
 

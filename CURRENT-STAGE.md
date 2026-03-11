@@ -119,7 +119,7 @@ Built the visual garden, sprite system, animations, and rendering pipeline:
 - **5c: Agent Sprites & Roles** ✅ — Dynamic sprites per session, role-based colors/zones, hook-driven animations
 - **5d: Spawning & Lifecycle** ✅ — Spawn headless agents, term/stop buttons, SIGTERM+SIGKILL cleanup
 - **5e: Head Gardener (Orchestrator)** ✅ — Goal decomposition, task routing, plan tracking, UI with subtask chips
-- **5f: Directory Management** 🔲 — Shared default directory with per-agent overrides
+- **5f: Directory Management** ✅ — Multi-directory support (primary + additional), per-agent overrides, visual grouping
 - **5g: Garden Integration** 🔲 — Plants, stats, weather all driven by real Claude Code activity
 - **5h: Setup UX** 🔲 — Wizard to auto-configure Claude Code hooks
 
@@ -166,5 +166,5 @@ Requires [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) insta
 ## Tests
 
 ```bash
-node test-all.js    # 172 tests (all passing)
+node test-all.js    # 199 tests (all passing)
 ```

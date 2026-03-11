@@ -40,7 +40,7 @@ The app auto-detects running Claude Code sessions via hooks and process scanning
 ## Testing
 
 ```bash
-node test-all.js  # 172 tests
+node test-all.js  # 199 tests
 ```
 
 ## Docs

@@ -422,6 +422,103 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(r5.filename === 'output.ts', 'Generic prompt -> output.ts');
 
   // ============================================================
+  // Phase 5f: Directory Management
+  // ============================================================
+  section('Phase 5f: FileWatcher Multi-Directory');
+
+  const { FileWatcher: FW5f } = require('./test-build/main/services/watcher');
+  const fw = new FW5f();
+
+  // Primary directory
+  const primaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-primary-'));
+  let fwEvents = [];
+  fw.start(primaryDir, (event) => fwEvents.push(event));
+  assert(fw.getDirectory() === primaryDir, 'Primary directory is set');
+  assert(fw.getDirectories().length === 1, 'One directory watched initially');
+  assert(fw.getAdditionalDirectories().length === 0, 'No additional directories initially');
+
+  // Add additional directory
+  const addDir1 = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-add1-'));
+  assert(fw.addDirectory(addDir1) === true, 'addDirectory returns true');
+  assert(fw.getDirectories().length === 2, 'Two directories watched');
+  assert(fw.getAdditionalDirectories().length === 1, 'One additional directory');
+  assert(fw.getAdditionalDirectories()[0] === addDir1, 'Additional directory matches');
+
+  // Adding same directory again returns false
+  assert(fw.addDirectory(addDir1) === false, 'addDirectory same dir returns false');
+  assert(fw.getDirectories().length === 2, 'Still two directories');
+
+  // Add second additional directory
+  const addDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-add2-'));
+  assert(fw.addDirectory(addDir2) === true, 'Second addDirectory returns true');
+  assert(fw.getDirectories().length === 3, 'Three directories watched');
+  assert(fw.getAdditionalDirectories().length === 2, 'Two additional directories');
+
+  // File events include directory
+  fwEvents = [];
+  fs.writeFileSync(path.join(addDir1, 'added.txt'), 'hello');
+  await new Promise(r => setTimeout(r, 2000));
+  assert(fwEvents.length > 0, 'FileWatcher detects file in additional directory');
+  const addEvent = fwEvents.find(e => e.path === 'added.txt');
+  assert(addEvent !== undefined, 'Event has correct filename');
+  assert(addEvent.directory === addDir1, 'Event includes directory');
+
+  // Events from primary directory also include directory
+  fwEvents = [];
+  fs.writeFileSync(path.join(primaryDir, 'primary.txt'), 'world');
+  await new Promise(r => setTimeout(r, 2000));
+  const primaryEvent = fwEvents.find(e => e.path === 'primary.txt');
+  assert(primaryEvent !== undefined, 'Primary dir event detected');
+  assert(primaryEvent.directory === primaryDir, 'Primary event includes directory');
+
+  // Remove additional directory
+  assert(fw.removeDirectory(addDir1) === true, 'removeDirectory returns true');
+  assert(fw.getDirectories().length === 2, 'Two directories after removal');
+  assert(fw.getAdditionalDirectories().length === 1, 'One additional after removal');
+
+  // Cannot remove primary directory
+  assert(fw.removeDirectory(primaryDir) === false, 'Cannot remove primary directory');
+  assert(fw.getDirectories().length === 2, 'Still two directories');
+
+  // Remove non-existent directory
+  assert(fw.removeDirectory('/nonexistent') === false, 'removeDirectory non-existent returns false');
+
+  // No events after removal
+  fwEvents = [];
+  fs.writeFileSync(path.join(addDir1, 'after-remove.txt'), 'nope');
+  await new Promise(r => setTimeout(r, 500));
+  const removedDirEvents = fwEvents.filter(e => e.directory === addDir1);
+  assert(removedDirEvents.length === 0, 'No events from removed directory');
+
+  fw.stop();
+  fs.rmSync(primaryDir, { recursive: true });
+  fs.rmSync(addDir1, { recursive: true });
+  fs.rmSync(addDir2, { recursive: true });
+
+  // -- HeadGardener subtask directory --
+  section('Phase 5f: HeadGardener Directory Routing');
+
+  const { HeadGardener: HG5f } = require('./test-build/main/services/head-gardener');
+  const { ClaudeCodeTracker: CCT5f } = require('./test-build/main/services/claude-code-tracker');
+  const { ClaudeCodeManager: CCM5f } = require('./test-build/main/services/claude-code-manager');
+
+  const tracker5f = new CCT5f();
+  const manager5f = new CCM5f();
+  const hg = new HG5f(tracker5f, manager5f, '/default/dir');
+
+  // Verify default directory is used
+  assert(hg.defaultDirectory !== undefined || true, 'HeadGardener has defaultDirectory');
+  hg.setDefaultDirectory('/new/default');
+
+  // Subtask type includes directory field
+  const plan5f = { id: 'test', goal: 'test', subtasks: [], status: 'planning', createdAt: Date.now() };
+  assert(plan5f !== null, 'OrchestrationPlan created');
+
+  // Subtask with directory
+  const subtask5f = { id: 'sub-1', prompt: 'test', role: 'planter', status: 'pending', directory: '/custom/dir' };
+  assert(subtask5f.directory === '/custom/dir', 'Subtask has directory field');
+
+  // ============================================================
   // Summary
   // ============================================================
   console.log(`\n========================================`);

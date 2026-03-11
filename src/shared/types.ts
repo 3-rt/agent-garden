@@ -49,6 +49,7 @@ export interface OrchestrationSubtask {
   status: 'pending' | 'assigned' | 'complete' | 'error';
   agentId?: string;
   sessionId?: string;
+  directory?: string;
 }
 
 export interface OrchestrationPlan {
@@ -76,6 +77,7 @@ export interface AgentStreamChunk {
 export interface FileEvent {
   type: 'created' | 'modified' | 'deleted';
   path: string;
+  directory?: string;
 }
 
 export interface TaskStatus {
@@ -113,6 +115,7 @@ export interface PlantState {
   y: number;
   zone: string;
   createdAt: number;
+  directory?: string;
 }
 
 export interface GardenState {
@@ -138,6 +141,11 @@ export interface ElectronAPI {
   onTaskStatus: (callback: (status: TaskStatus) => void) => void;
   onFileSaved: (callback: (info: FileSaved) => void) => void;
   onDirectoryChanged: (callback: (dir: string) => void) => void;
+  // Directory management (Phase 5f)
+  addDirectory: () => Promise<string | null>;
+  removeDirectory: (dir: string) => void;
+  getDirectories: () => Promise<{ primary: string; additional: string[] }>;
+  onDirectoriesUpdated: (callback: (dirs: { primary: string; additional: string[] }) => void) => void;
   onAgentError: (callback: (error: { taskId: string; agentId: string; message: string }) => void) => void;
   onAgentsUpdated: (callback: (agents: AgentInfo[]) => void) => void;
   onStatsUpdated: (callback: (stats: GardenStats) => void) => void;

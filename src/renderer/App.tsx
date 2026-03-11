@@ -12,6 +12,7 @@ export function App() {
   const gameContainerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GardenGame | null>(null);
   const [directory, setDirectory] = useState('');
+  const [additionalDirectories, setAdditionalDirectories] = useState<string[]>([]);
   const [lastError, setLastError] = useState('');
   const [stats, setStats] = useState<GardenStatsData>({
     filesCreated: 0,
@@ -51,13 +52,25 @@ export function App() {
 
     window.electronAPI?.onFileEvent((event) => {
       if (event.type === 'created') {
-        gameRef.current?.onFileCreated(event.path);
+        gameRef.current?.onFileCreated(event.path, event.directory);
       } else if (event.type === 'modified') {
         gameRef.current?.onFileModified(event.path);
       }
     });
 
     window.electronAPI?.onDirectoryChanged((dir) => setDirectory(dir));
+
+    // Directory management (Phase 5f)
+    window.electronAPI?.getDirectories().then((dirs) => {
+      if (dirs) {
+        setDirectory(dirs.primary);
+        setAdditionalDirectories(dirs.additional);
+      }
+    });
+    window.electronAPI?.onDirectoriesUpdated((dirs) => {
+      setDirectory(dirs.primary);
+      setAdditionalDirectories(dirs.additional);
+    });
     window.electronAPI?.onStatsUpdated((s) => setStats(s));
 
     // Claude Code agent events
@@ -163,11 +176,25 @@ export function App() {
   const handleSpawnAgent = useCallback(async () => {
     const prompt = window.prompt('Task for the new agent (leave empty for interactive):');
     if (prompt === null) return;
-    const result = await window.electronAPI?.spawnAgent('unassigned', prompt || undefined, directory || undefined);
+
+    // If multiple directories are available, let user pick
+    let targetDir = directory || undefined;
+    const allDirs = [directory, ...additionalDirectories].filter(Boolean);
+    if (allDirs.length > 1) {
+      const dirNames = allDirs.map((d, i) => `${i + 1}. ${d.split('/').pop()}`).join('\n');
+      const choice = window.prompt(`Choose directory (1-${allDirs.length}):\n${dirNames}`, '1');
+      if (choice === null) return;
+      const idx = parseInt(choice, 10) - 1;
+      if (idx >= 0 && idx < allDirs.length) {
+        targetDir = allDirs[idx];
+      }
+    }
+
+    const result = await window.electronAPI?.spawnAgent('unassigned', prompt || undefined, targetDir);
     if (!result) {
       setLastError('Failed to spawn agent. Is Claude CLI installed?');
     }
-  }, [directory]);
+  }, [directory, additionalDirectories]);
 
   const handleStopAgent = useCallback((sessionId: string) => {
     window.electronAPI?.stopAgent(sessionId);
@@ -372,7 +399,7 @@ export function App() {
           </div>
         )}
         <div style={{ marginTop: '6px' }}>
-          <DirectoryPicker directory={directory} />
+          <DirectoryPicker directory={directory} additionalDirectories={additionalDirectories} />
         </div>
       </div>
       <StatsPanel stats={stats} plantCount={plantCount} />

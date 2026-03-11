@@ -23,6 +23,7 @@ const configPath = path.join(app.getPath('userData'), 'agent-garden-config.json'
 
 interface AppConfig {
   watchDirectory: string;
+  additionalDirectories?: string[];
   theme?: string;
 }
 
@@ -50,6 +51,13 @@ function startWatcher(directory: string) {
   });
 }
 
+function broadcastDirectories() {
+  mainWindow?.webContents.send('directories:updated', {
+    primary: watcher.getDirectory(),
+    additional: watcher.getAdditionalDirectories(),
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -74,29 +82,82 @@ app.whenReady().then(() => {
   // Start file watcher with persisted directory
   const config = loadConfig();
   startWatcher(config.watchDirectory);
+  // Restore additional directories
+  if (config.additionalDirectories) {
+    for (const dir of config.additionalDirectories) {
+      watcher.addDirectory(dir);
+    }
+  }
   mainWindow?.webContents.on('did-finish-load', () => {
     mainWindow?.webContents.send('directory:changed', config.watchDirectory);
+    broadcastDirectories();
   });
 
-  // Directory picker
+  // Directory picker (primary directory)
   ipcMain.handle('dialog:select-directory', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       properties: ['openDirectory'],
-      title: 'Select output directory for generated files',
+      title: 'Select primary project directory',
     });
     if (result.canceled || result.filePaths.length === 0) return null;
 
     const dir = result.filePaths[0];
+    const additionalDirs = watcher.getAdditionalDirectories();
     startWatcher(dir);
+    // Re-add additional directories after primary restart
+    for (const d of additionalDirs) {
+      watcher.addDirectory(d);
+    }
     saveConfig({ watchDirectory: dir });
     headGardener?.setDefaultDirectory(dir);
     mainWindow?.webContents.send('directory:changed', dir);
+    broadcastDirectories();
     return dir;
   });
 
   ipcMain.on('watcher:set-directory', (_event, directory: string) => {
+    const additionalDirs = watcher.getAdditionalDirectories();
     startWatcher(directory);
+    for (const d of additionalDirs) {
+      watcher.addDirectory(d);
+    }
     saveConfig({ watchDirectory: directory });
+  });
+
+  // Directory management (Phase 5f)
+  ipcMain.handle('directory:add', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openDirectory'],
+      title: 'Add additional project directory',
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+
+    const dir = result.filePaths[0];
+    if (!watcher.addDirectory(dir)) return null; // Already watched
+
+    const cfg = loadConfig();
+    const additional = cfg.additionalDirectories || [];
+    if (!additional.includes(dir)) {
+      additional.push(dir);
+      saveConfig({ additionalDirectories: additional });
+    }
+    broadcastDirectories();
+    return dir;
+  });
+
+  ipcMain.on('directory:remove', (_event, dir: string) => {
+    watcher.removeDirectory(dir);
+    const cfg = loadConfig();
+    const additional = (cfg.additionalDirectories || []).filter(d => d !== dir);
+    saveConfig({ additionalDirectories: additional });
+    broadcastDirectories();
+  });
+
+  ipcMain.handle('directory:list', () => {
+    return {
+      primary: watcher.getDirectory(),
+      additional: watcher.getAdditionalDirectories(),
+    };
   });
 
   // Garden persistence

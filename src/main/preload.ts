@@ -27,6 +27,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onDirectoryChanged: (callback: (dir: string) => void) => {
     ipcRenderer.on('directory:changed', (_event, dir) => callback(dir));
   },
+  // Directory management (Phase 5f)
+  addDirectory: () => ipcRenderer.invoke('directory:add'),
+  removeDirectory: (dir: string) => ipcRenderer.send('directory:remove', dir),
+  getDirectories: () => ipcRenderer.invoke('directory:list'),
+  onDirectoriesUpdated: (callback: (dirs: { primary: string; additional: string[] }) => void) => {
+    ipcRenderer.on('directories:updated', (_event, dirs) => callback(dirs));
+  },
   onAgentError: (callback: (error: { taskId: string; agentId: string; message: string }) => void) => {
     ipcRenderer.on('agent:error', (_event, error) => callback(error));
   },

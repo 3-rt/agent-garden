@@ -79,11 +79,16 @@ Replace the built-in API agents with real Claude Code CLI sessions. The app beco
 - UI: goal input bar + "Delegate" button, live plan status with subtask chips
 - IPC: `head-gardener:submit-goal`, `head-gardener:get-plans`, plan/subtask events forwarded to renderer
 
-### 5f: Directory Management 🔲
-- Default: all agents share the watched project directory
+### 5f: Directory Management ✅
+- Default: all agents share the watched primary project directory
 - Per-agent override: individual Claude Code agents can target different directories
-- Garden visually groups plants by directory when multiple directories are active
-- Directory selector shows "primary" + "additional" directories
+- `FileWatcher` supports multiple directories simultaneously (primary + additional)
+- `additionalDirectories` persisted in config, restored on startup
+- Garden visually groups plants by directory when multiple directories are active (vertical offset + directory labels)
+- Plants include `directory` in state for persistence
+- Directory selector shows "primary" + "additional" directories with add/remove buttons
+- Spawning agents prompts for directory choice when multiple are available
+- `OrchestrationSubtask` supports per-subtask `directory` override
 
 ### 5g: Garden Integration 🔲
 - Plants grow when Claude Code agents create/modify files (detected via hooks + FileWatcher)

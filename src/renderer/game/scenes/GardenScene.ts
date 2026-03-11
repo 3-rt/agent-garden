@@ -20,9 +20,11 @@ const ZONE_LAYOUT: Record<string, { x: number; width: number }> = {
 export class GardenScene extends Phaser.Scene {
   private agents = new Map<string, Agent>();
   private plantMap = new Map<string, Phaser.GameObjects.Container>();
-  private plantPositions = new Map<string, { x: number; y: number; zone: string }>();
+  private plantPositions = new Map<string, { x: number; y: number; zone: string; directory?: string }>();
   private zonePlantSlots = new Map<string, number>();
   private accumulatedText = new Map<string, string>();
+  private activeDirectories = new Set<string>();
+  private directoryLabels = new Map<string, Phaser.GameObjects.Text>();
 
   // Phase 4 systems
   private dayNight!: DayNightCycle;
@@ -276,8 +278,16 @@ export class GardenScene extends Phaser.Scene {
     }
   }
 
-  onFileCreated(filename: string) {
-    if (this.plantMap.has(filename)) return;
+  onFileCreated(filename: string, directory?: string) {
+    // Use directory:filename as key when multiple directories are active
+    const key = directory && this.activeDirectories.size > 1
+      ? `${directory}:${filename}` : filename;
+    if (this.plantMap.has(key)) return;
+
+    // Track directory and show label if new
+    if (directory) {
+      this.trackDirectory(directory);
+    }
 
     const zone = this.fileToZone(filename);
     const { width, height } = this.scale;
@@ -289,15 +299,77 @@ export class GardenScene extends Phaser.Scene {
     this.zonePlantSlots.set(zone, slot + 1);
 
     const x = this.getPlantX(zoneStart + 30, zoneW - 60, slot);
-    const above = slot % 2 === 0;
-    const y = above
-      ? height / 2 - 60 - Math.random() * 40
-      : height / 2 + 60 + Math.random() * 40;
+
+    // Offset plants vertically by directory index when multiple dirs active
+    const dirIndex = directory ? this.getDirectoryIndex(directory) : 0;
+    const dirCount = Math.max(1, this.activeDirectories.size);
+    let above: boolean;
+    let y: number;
+
+    if (dirCount > 1) {
+      // Spread directories across vertical space: even indices above path, odd below
+      above = dirIndex % 2 === 0;
+      const verticalOffset = Math.floor(dirIndex / 2) * 30;
+      y = above
+        ? height / 2 - 60 - verticalOffset - Math.random() * 30
+        : height / 2 + 60 + verticalOffset + Math.random() * 30;
+    } else {
+      above = slot % 2 === 0;
+      y = above
+        ? height / 2 - 60 - Math.random() * 40
+        : height / 2 + 60 + Math.random() * 40;
+    }
 
     const plant = this.growPlant(x, y, filename);
-    this.plantMap.set(filename, plant);
-    this.plantPositions.set(filename, { x, y, zone });
+    this.plantMap.set(key, plant);
+    this.plantPositions.set(key, { x, y, zone, directory });
     this.emitParticles(x, y);
+  }
+
+  private trackDirectory(directory: string) {
+    if (this.activeDirectories.has(directory)) return;
+    this.activeDirectories.add(directory);
+
+    // Only show directory labels when multiple directories are active
+    if (this.activeDirectories.size > 1) {
+      this.refreshDirectoryLabels();
+    }
+  }
+
+  private getDirectoryIndex(directory: string): number {
+    const dirs = Array.from(this.activeDirectories);
+    return dirs.indexOf(directory);
+  }
+
+  private refreshDirectoryLabels() {
+    // Remove old labels
+    for (const label of this.directoryLabels.values()) {
+      label.destroy();
+    }
+    this.directoryLabels.clear();
+
+    const { width, height } = this.scale;
+    const dirs = Array.from(this.activeDirectories);
+    const colors = ['#66bb6a', '#42a5f5', '#ffa726', '#ce93d8', '#ef5350'];
+
+    for (let i = 0; i < dirs.length; i++) {
+      const dirName = dirs[i].split('/').pop() || dirs[i];
+      const above = i % 2 === 0;
+      const verticalOffset = Math.floor(i / 2) * 30;
+      const y = above
+        ? height / 2 - 100 - verticalOffset
+        : height / 2 + 100 + verticalOffset;
+
+      const label = this.add.text(10, y, dirName, {
+        fontSize: '8px',
+        color: colors[i % colors.length],
+        fontFamily: 'monospace',
+        backgroundColor: '#00000066',
+        padding: { x: 3, y: 1 },
+      }).setDepth(15);
+
+      this.directoryLabels.set(dirs[i], label);
+    }
   }
 
   onFileModified(filename: string) {
@@ -352,13 +424,16 @@ export class GardenScene extends Phaser.Scene {
 
   getPlantStates(): PlantState[] {
     const plants: PlantState[] = [];
-    for (const [filename, pos] of this.plantPositions) {
+    for (const [key, pos] of this.plantPositions) {
+      // Extract filename from key (may be "dir:filename" or just "filename")
+      const filename = key.includes(':') ? key.split(':').slice(1).join(':') : key;
       plants.push({
         filename,
         x: pos.x,
         y: pos.y,
         zone: pos.zone,
         createdAt: Date.now(),
+        directory: pos.directory,
       });
     }
     return plants;
@@ -366,14 +441,25 @@ export class GardenScene extends Phaser.Scene {
 
   restorePlants(plants: PlantState[]) {
     for (const p of plants) {
-      if (this.plantMap.has(p.filename)) continue;
+      const key = p.directory ? `${p.directory}:${p.filename}` : p.filename;
+      if (this.plantMap.has(key)) continue;
+
+      if (p.directory) {
+        this.activeDirectories.add(p.directory);
+      }
+
       const container = this.growPlant(p.x, p.y, p.filename);
-      this.plantMap.set(p.filename, container);
-      this.plantPositions.set(p.filename, { x: p.x, y: p.y, zone: p.zone });
+      this.plantMap.set(key, container);
+      this.plantPositions.set(key, { x: p.x, y: p.y, zone: p.zone, directory: p.directory });
 
       // Update zone slot count
       const current = this.zonePlantSlots.get(p.zone) || 0;
       this.zonePlantSlots.set(p.zone, current + 1);
+    }
+
+    // Show directory labels if multiple directories were restored
+    if (this.activeDirectories.size > 1) {
+      this.refreshDirectoryLabels();
     }
   }
 

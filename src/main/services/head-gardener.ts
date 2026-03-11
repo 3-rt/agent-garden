@@ -11,6 +11,7 @@ export interface Subtask {
   status: 'pending' | 'assigned' | 'complete' | 'error';
   agentId?: string;
   sessionId?: string;
+  directory?: string;
 }
 
 export interface OrchestrationPlan {
@@ -127,7 +128,7 @@ export class HeadGardener extends EventEmitter {
       const result = await this.manager.spawn({
         role: subtask.role,
         prompt: subtask.prompt,
-        directory: this.defaultDirectory,
+        directory: subtask.directory || this.defaultDirectory,
       });
 
       if (result) {
