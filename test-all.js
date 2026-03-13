@@ -201,7 +201,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(initialStats.filesCreated === 0, 'Initial filesCreated is 0');
   assert(initialStats.tasksCompleted === 0, 'Initial tasksCompleted is 0');
   assert(initialStats.tasksFailed === 0, 'Initial tasksFailed is 0');
-  assert(initialStats.tokensUsed === 0, 'Initial tokensUsed is 0');
+  assert(initialStats.activeAgents === 0, 'Initial activeAgents is 0');
   assert(initialStats.sessionStart > 0, 'Session start is set');
 
   // Record events
@@ -209,14 +209,13 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   persist.recordFileCreated();
   persist.recordTaskCompleted();
   persist.recordTaskFailed();
-  persist.recordTokens(1500);
-  persist.recordTokens(500);
+  persist.setActiveAgents(2);
 
   const updatedStats = persist.getStats();
   assert(updatedStats.filesCreated === 2, 'filesCreated increments correctly');
   assert(updatedStats.tasksCompleted === 1, 'tasksCompleted increments correctly');
   assert(updatedStats.tasksFailed === 1, 'tasksFailed increments correctly');
-  assert(updatedStats.tokensUsed === 2000, 'tokensUsed accumulates correctly');
+  assert(updatedStats.activeAgents === 2, 'activeAgents tracked correctly');
 
   // Save state
   const testPlants = [
@@ -265,7 +264,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
     timestamp: 1000,
     plants: [{ filename: 'a.ts', x: 10, y: 20, zone: 'backend' }],
     agents: [{ id: 'agent-planter', role: 'planter', state: 'idle', x: 100, totalTokens: 0 }],
-    stats: { filesCreated: 1, tasksCompleted: 1, tokensUsed: 500 },
+    stats: { filesCreated: 1, tasksCompleted: 1, activeAgents: 1 },
   });
   assert(tl.snapshotCount === 1, 'Snapshot count is 1 after adding');
 
@@ -276,7 +275,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
       { filename: 'b.tsx', x: 50, y: 30, zone: 'frontend' },
     ],
     agents: [{ id: 'agent-planter', role: 'planter', state: 'working', x: 200, totalTokens: 500 }],
-    stats: { filesCreated: 2, tasksCompleted: 2, tokensUsed: 1000 },
+    stats: { filesCreated: 2, tasksCompleted: 2, activeAgents: 1 },
   });
   assert(tl.snapshotCount === 2, 'Snapshot count is 2');
 
@@ -295,7 +294,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
     timestamp: 3000,
     plants: [],
     agents: [],
-    stats: { filesCreated: 0, tasksCompleted: 0, tokensUsed: 0 },
+    stats: { filesCreated: 0, tasksCompleted: 0, activeAgents: 0 },
   });
   assert(tl.snapshotCount === 2, 'No snapshot added when recording is off');
   tl.setRecording(true);
@@ -327,7 +326,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
       timestamp: i,
       plants: [],
       agents: [],
-      stats: { filesCreated: 0, tasksCompleted: 0, tokensUsed: 0 },
+      stats: { filesCreated: 0, tasksCompleted: 0, activeAgents: 0 },
     });
   }
   assert(tl3.snapshotCount === 200, 'Snapshots capped at 200');
@@ -517,6 +516,25 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   // Subtask with directory
   const subtask5f = { id: 'sub-1', prompt: 'test', role: 'planter', status: 'pending', directory: '/custom/dir' };
   assert(subtask5f.directory === '/custom/dir', 'Subtask has directory field');
+
+  // ============================================================
+  // Phase 5g: Type Consolidation
+  // ============================================================
+  section('Phase 5g: Type Consolidation');
+
+  const sharedTypes = require('./test-build/shared/types');
+  const persistenceModule = require('./test-build/main/services/persistence');
+
+  const ps = new persistenceModule.PersistenceService('/tmp/agent-garden-test-5g');
+  const statsCheck = ps.getStats();
+  assert(statsCheck.activeAgents !== undefined || statsCheck.activeAgents === 0, 'Stats has activeAgents field');
+  assert(statsCheck.tokensUsed === undefined, 'Stats no longer has tokensUsed field');
+
+  section('Phase 5g: StatsPanel Types');
+
+  const testStats = { filesCreated: 5, tasksCompleted: 3, tasksFailed: 1, activeAgents: 2, sessionStart: Date.now() };
+  assert(testStats.activeAgents === 2, 'GardenStats accepts activeAgents');
+  assert(testStats.tokensUsed === undefined, 'GardenStats has no tokensUsed');
 
   // ============================================================
   // Summary

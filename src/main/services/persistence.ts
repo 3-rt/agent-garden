@@ -1,28 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
-
-export interface GardenState {
-  plants: PlantState[];
-  stats: GardenStats;
-  theme: string;
-  savedAt: number;
-}
-
-export interface PlantState {
-  filename: string;
-  x: number;
-  y: number;
-  zone: string;
-  createdAt: number;
-}
-
-export interface GardenStats {
-  filesCreated: number;
-  tasksCompleted: number;
-  tasksFailed: number;
-  tokensUsed: number;
-  sessionStart: number;
-}
+import type { GardenState, GardenStats, PlantState } from '../../shared/types';
 
 export class PersistenceService {
   private statePath: string;
@@ -36,7 +14,7 @@ export class PersistenceService {
       filesCreated: 0,
       tasksCompleted: 0,
       tasksFailed: 0,
-      tokensUsed: 0,
+      activeAgents: 0,
       sessionStart: Date.now(),
     };
   }
@@ -45,7 +23,10 @@ export class PersistenceService {
     try {
       if (existsSync(this.statePath)) {
         const data = JSON.parse(readFileSync(this.statePath, 'utf-8'));
-        if (data.stats) this.stats = { ...this.stats, ...data.stats };
+        if (data.stats) {
+          const { tokensUsed, ...rest } = data.stats;
+          this.stats = { ...this.stats, ...rest, activeAgents: rest.activeAgents ?? 0 };
+        }
         return data;
       }
     } catch {}
@@ -80,7 +61,7 @@ export class PersistenceService {
     this.stats.tasksFailed++;
   }
 
-  recordTokens(count: number) {
-    this.stats.tokensUsed += count;
+  setActiveAgents(count: number) {
+    this.stats.activeAgents = count;
   }
 }

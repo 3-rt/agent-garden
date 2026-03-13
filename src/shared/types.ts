@@ -78,6 +78,8 @@ export interface FileEvent {
   type: 'created' | 'modified' | 'deleted';
   path: string;
   directory?: string;
+  agentId?: string;
+  creatorRole?: AgentRole;
 }
 
 export interface TaskStatus {
@@ -105,7 +107,7 @@ export interface GardenStats {
   filesCreated: number;
   tasksCompleted: number;
   tasksFailed: number;
-  tokensUsed: number;
+  activeAgents: number;
   sessionStart: number;
 }
 
@@ -116,6 +118,7 @@ export interface PlantState {
   zone: string;
   createdAt: number;
   directory?: string;
+  creatorRole?: AgentRole;
 }
 
 export interface GardenState {
@@ -123,6 +126,13 @@ export interface GardenState {
   stats: GardenStats;
   theme: string;
   savedAt: number;
+}
+
+export type HookConnectionStatus = 'connected' | 'waiting' | 'not-configured';
+
+export interface HookStatusInfo {
+  status: HookConnectionStatus;
+  lastEventTime?: number;
 }
 
 export interface ElectronAPI {
