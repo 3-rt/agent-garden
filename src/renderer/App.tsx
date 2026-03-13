@@ -3,6 +3,8 @@ import { GardenGame } from './game/GardenGame';
 import { DirectoryPicker } from './components/DirectoryPicker';
 import { StatsPanel } from './components/StatsPanel';
 import { ThemePicker } from './components/ThemePicker';
+import { SetupBanner } from './components/SetupBanner';
+import { HookSetupModal } from './components/HookSetupModal';
 import { ThemeManager } from './game/systems/ThemeManager';
 import type { CCAgentSession, OrchestrationPlan, GardenStats, HookConnectionStatus } from '../shared/types';
 
@@ -22,6 +24,10 @@ export function App() {
     sessionStart: Date.now(),
   });
   const [hookStatus, setHookStatus] = useState<HookConnectionStatus>('waiting');
+  const [showSetupBanner, setShowSetupBanner] = useState(false);
+  const [cliInstalled, setCliInstalled] = useState(true);
+  const [hooksConfigured, setHooksConfigured] = useState(true);
+  const [showHookSetupModal, setShowHookSetupModal] = useState(false);
   const [currentTheme, setCurrentTheme] = useState('garden');
   const [ccAgents, setCCAgents] = useState<CCAgentSession[]>([]);
   const [plans, setPlans] = useState<OrchestrationPlan[]>([]);
@@ -53,9 +59,11 @@ export function App() {
 
     window.electronAPI?.onFileEvent((event) => {
       if (event.type === 'created') {
-        gameRef.current?.onFileCreated(event.path, event.directory);
+        gameRef.current?.onFileCreated(event.path, event.directory, event.creatorRole);
       } else if (event.type === 'modified') {
         gameRef.current?.onFileModified(event.path);
+      } else if (event.type === 'deleted') {
+        gameRef.current?.onFileDeleted(event.path, event.directory);
       }
     });
 
@@ -73,6 +81,26 @@ export function App() {
       setAdditionalDirectories(dirs.additional);
     });
     window.electronAPI?.onStatsUpdated((s) => setStats(s));
+
+    // Hook status
+    window.electronAPI?.getHookStatus().then((s) => setHookStatus(s));
+    window.electronAPI?.onHookStatusChanged((s) => setHookStatus(s));
+
+    // Check hook configuration on mount
+    (async () => {
+      const config = await window.electronAPI?.checkHookConfig();
+      if (config) {
+        setCliInstalled(config.cliInstalled);
+        setHooksConfigured(config.hooksConfigured);
+        if (!config.hooksConfigured) {
+          setHookStatus('not-configured');
+          const dismissed = await window.electronAPI?.checkBannerDismissed();
+          if (!dismissed) {
+            setShowSetupBanner(true);
+          }
+        }
+      }
+    })();
 
     // Claude Code agent events
     window.electronAPI?.getCCAgents().then((agents) => {
@@ -112,7 +140,16 @@ export function App() {
     });
 
     window.electronAPI?.onCCAgentExited((data) => {
-      gameRef.current?.showActivity(data.agentId, 'Stop', 'Finished');
+      if (data.code === 0 || data.code === null) {
+        gameRef.current?.onTaskComplete(data.agentId);
+      } else {
+        gameRef.current?.onError(data.agentId);
+      }
+      // Remove sprite after a short delay so the completion/error animation is visible
+      setTimeout(() => {
+        setCCAgents((prev) => prev.filter((a) => a.sessionId !== data.sessionId));
+        gameRef.current?.removeAgent(data.agentId);
+      }, 3000);
     });
 
     // Head Gardener orchestration events
@@ -216,6 +253,17 @@ export function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {showSetupBanner && (
+        <SetupBanner
+          cliInstalled={cliInstalled}
+          hooksConfigured={hooksConfigured}
+          onConfigureClick={() => setShowHookSetupModal(true)}
+          onDismiss={() => {
+            setShowSetupBanner(false);
+            window.electronAPI?.dismissBanner();
+          }}
+        />
+      )}
       <div
         ref={gameContainerRef}
         style={{ flex: 1, minHeight: 0 }}
@@ -404,6 +452,16 @@ export function App() {
         </div>
       </div>
       <StatsPanel stats={stats} plantCount={plantCount} hookStatus={hookStatus} />
+      {showHookSetupModal && (
+        <HookSetupModal
+          onClose={() => setShowHookSetupModal(false)}
+          onAutoConfigured={() => {
+            setHooksConfigured(true);
+            setShowSetupBanner(false);
+            setHookStatus('waiting');
+          }}
+        />
+      )}
     </div>
   );
 }

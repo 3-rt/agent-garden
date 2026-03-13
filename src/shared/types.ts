@@ -173,6 +173,14 @@ export interface ElectronAPI {
   onCCAgentSpawned: (callback: (data: { agentId: string; sessionId: string; role: AgentRole; directory: string; prompt?: string }) => void) => void;
   onCCAgentOutput: (callback: (data: { agentId: string; sessionId: string; text: string }) => void) => void;
   onCCAgentExited: (callback: (data: { agentId: string; sessionId: string; code: number | null }) => void) => void;
+  // Hook status (Phase 5g)
+  getHookStatus: () => Promise<HookConnectionStatus>;
+  onHookStatusChanged: (callback: (status: HookConnectionStatus) => void) => void;
+  // Setup UX (Phase 5h)
+  checkHookConfig: () => Promise<{ cliInstalled: boolean; hooksConfigured: boolean }>;
+  autoConfigureHooks: () => Promise<{ success: boolean; error?: string }>;
+  checkBannerDismissed: () => Promise<boolean>;
+  dismissBanner: () => void;
   // Head Gardener orchestration
   submitGoal: (goal: string) => Promise<OrchestrationPlan>;
   getPlans: () => Promise<OrchestrationPlan[]>;

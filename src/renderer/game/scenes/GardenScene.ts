@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import { Agent } from '../sprites/Agent';
-import { DayNightCycle } from '../systems/DayNightCycle';
 import { TimeLapse, GardenSnapshot } from '../systems/TimeLapse';
 import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
 import type { AgentRole, PlantState } from '../../../shared/types';
@@ -20,18 +19,16 @@ const ZONE_LAYOUT: Record<string, { x: number; width: number }> = {
 export class GardenScene extends Phaser.Scene {
   private agents = new Map<string, Agent>();
   private plantMap = new Map<string, Phaser.GameObjects.Container>();
-  private plantPositions = new Map<string, { x: number; y: number; zone: string; directory?: string }>();
+  private plantPositions = new Map<string, { x: number; y: number; zone: string; directory?: string; creatorRole?: AgentRole }>();
   private zonePlantSlots = new Map<string, number>();
   private accumulatedText = new Map<string, string>();
   private activeDirectories = new Set<string>();
   private directoryLabels = new Map<string, Phaser.GameObjects.Text>();
 
   // Phase 4 systems
-  private dayNight!: DayNightCycle;
   private timeLapse = new TimeLapse();
   private themeManager = new ThemeManager();
   private groundTiles: Phaser.GameObjects.Image[] = [];
-  private pathTiles: Phaser.GameObjects.Image[] = [];
   private titleText!: Phaser.GameObjects.Text;
 
   private snapshotInterval = 10_000; // snapshot every 10s
@@ -50,23 +47,13 @@ export class GardenScene extends Phaser.Scene {
       const theme = this.themeManager.current;
       const TILE_SIZE = 32;
 
-      // Draw ground with colored rectangles (reliable, theme-friendly)
+      // Draw a simple field background
       for (let x = 0; x < width; x += TILE_SIZE) {
         for (let y = 0; y < height; y += TILE_SIZE) {
-          const shade = ((x / TILE_SIZE + y / TILE_SIZE) % 2 === 0)
-            ? theme.groundLight
-            : theme.groundDark;
-          const tile = this.add.rectangle(x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, shade)
+          const tile = this.add.rectangle(x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, theme.groundLight)
             .setDepth(0);
           this.groundTiles.push(tile as any);
         }
-      }
-
-      // Garden path (horizontal strip at mid-height)
-      for (let x = 0; x < width; x += TILE_SIZE) {
-        const tile = this.add.rectangle(x + TILE_SIZE / 2, height / 2, TILE_SIZE, TILE_SIZE, theme.pathColor)
-          .setDepth(1);
-        this.pathTiles.push(tile as any);
       }
 
       // Initialize zone plant slot counters
@@ -83,9 +70,6 @@ export class GardenScene extends Phaser.Scene {
 
       // No default agents — they appear dynamically from Claude Code sessions
 
-      // Day/Night cycle
-      this.dayNight = new DayNightCycle(this);
-
       // Theme change listener
       this.themeManager.onChange((t) => this.applyTheme(t));
 
@@ -95,9 +79,6 @@ export class GardenScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    // Update day/night cycle
-    this.dayNight.update(delta);
-
     // Time-lapse snapshots
     this.lastSnapshotTime += delta;
     if (this.lastSnapshotTime >= this.snapshotInterval) {
@@ -142,14 +123,6 @@ export class GardenScene extends Phaser.Scene {
     agent.showSpeechStatic('Done!');
     this.time.delayedCall(1500, () => agent.hideSpeech(true));
     agent.walkHome(() => agent.setState('idle'));
-
-    // Sunshine weather on completion
-    this.dayNight.setWeather('sunshine');
-    this.time.delayedCall(5000, () => {
-      if (this.dayNight.weather === 'sunshine') {
-        this.dayNight.setWeather('clear');
-      }
-    });
   }
 
   showError(agentId: string) {
@@ -161,14 +134,6 @@ export class GardenScene extends Phaser.Scene {
     this.time.delayedCall(3000, () => {
       agent.hideSpeech(true);
       agent.walkHome();
-    });
-
-    // Rain on error
-    this.dayNight.setWeather('rain');
-    this.time.delayedCall(8000, () => {
-      if (this.dayNight.weather === 'rain') {
-        this.dayNight.setWeather('clear');
-      }
     });
   }
 
@@ -264,12 +229,6 @@ export class GardenScene extends Phaser.Scene {
         agent.showSpeechStatic('Done!');
         this.time.delayedCall(1500, () => agent.hideSpeech(true));
         agent.walkHome(() => agent.setState('idle'));
-        this.dayNight.setWeather('sunshine');
-        this.time.delayedCall(5000, () => {
-          if (this.dayNight.weather === 'sunshine') {
-            this.dayNight.setWeather('clear');
-          }
-        });
         break;
 
       case 'Notification':
@@ -278,7 +237,7 @@ export class GardenScene extends Phaser.Scene {
     }
   }
 
-  onFileCreated(filename: string, directory?: string) {
+  onFileCreated(filename: string, directory?: string, creatorRole?: AgentRole) {
     // Use directory:filename as key when multiple directories are active
     const key = directory && this.activeDirectories.size > 1
       ? `${directory}:${filename}` : filename;
@@ -320,9 +279,9 @@ export class GardenScene extends Phaser.Scene {
         : height / 2 + 60 + Math.random() * 40;
     }
 
-    const plant = this.growPlant(x, y, filename);
+    const plant = this.growPlant(x, y, filename, creatorRole);
     this.plantMap.set(key, plant);
-    this.plantPositions.set(key, { x, y, zone, directory });
+    this.plantPositions.set(key, { x, y, zone, directory, creatorRole });
     this.emitParticles(x, y);
   }
 
@@ -372,6 +331,27 @@ export class GardenScene extends Phaser.Scene {
     }
   }
 
+  onFileDeleted(filename: string, directory?: string) {
+    const key = directory && this.activeDirectories.size > 1
+      ? `${directory}:${filename}` : filename;
+    const plant = this.plantMap.get(key);
+    if (!plant) return;
+
+    // Shrink and fade out, then destroy
+    this.tweens.add({
+      targets: plant,
+      scaleX: 0,
+      scaleY: 0,
+      alpha: 0,
+      duration: 400,
+      ease: 'Back.easeIn',
+      onComplete: () => plant.destroy(),
+    });
+
+    this.plantMap.delete(key);
+    this.plantPositions.delete(key);
+  }
+
   onFileModified(filename: string) {
     const plant = this.plantMap.get(filename);
     if (!plant) return;
@@ -398,19 +378,8 @@ export class GardenScene extends Phaser.Scene {
   }
 
   private applyTheme(theme: GardenTheme) {
-    // Recolor ground tiles (alternating light/dark)
-    const TILE_SIZE = 32;
     for (const tile of this.groundTiles) {
-      const rect = tile as unknown as Phaser.GameObjects.Rectangle;
-      const col = Math.round((rect.x - TILE_SIZE / 2) / TILE_SIZE);
-      const row = Math.round((rect.y - TILE_SIZE / 2) / TILE_SIZE);
-      const shade = ((col + row) % 2 === 0) ? theme.groundLight : theme.groundDark;
-      rect.setFillStyle(shade);
-    }
-
-    // Recolor path tiles
-    for (const tile of this.pathTiles) {
-      (tile as unknown as Phaser.GameObjects.Rectangle).setFillStyle(theme.pathColor);
+      (tile as unknown as Phaser.GameObjects.Rectangle).setFillStyle(theme.groundLight);
     }
 
     // Title
@@ -434,6 +403,7 @@ export class GardenScene extends Phaser.Scene {
         zone: pos.zone,
         createdAt: Date.now(),
         directory: pos.directory,
+        creatorRole: pos.creatorRole,
       });
     }
     return plants;
@@ -448,9 +418,9 @@ export class GardenScene extends Phaser.Scene {
         this.activeDirectories.add(p.directory);
       }
 
-      const container = this.growPlant(p.x, p.y, p.filename);
+      const container = this.growPlant(p.x, p.y, p.filename, p.creatorRole);
       this.plantMap.set(key, container);
-      this.plantPositions.set(key, { x: p.x, y: p.y, zone: p.zone, directory: p.directory });
+      this.plantPositions.set(key, { x: p.x, y: p.y, zone: p.zone, directory: p.directory, creatorRole: p.creatorRole });
 
       // Update zone slot count
       const current = this.zonePlantSlots.get(p.zone) || 0;
@@ -497,7 +467,7 @@ export class GardenScene extends Phaser.Scene {
       stats: {
         filesCreated: this.plantMap.size,
         tasksCompleted: 0,
-        tokensUsed: 0,
+        activeAgents: 0,
       },
     });
   }
@@ -560,7 +530,7 @@ export class GardenScene extends Phaser.Scene {
     return zoneStart + normalized * zoneWidth;
   }
 
-  private growPlant(x: number, y: number, filename: string): Phaser.GameObjects.Container {
+  private growPlant(x: number, y: number, filename: string, creatorRole?: AgentRole): Phaser.GameObjects.Container {
     const ext = filename.split('.').pop() || '';
     const isTest = filename.includes('.test.') || filename.includes('.spec.');
     const { stemColor, topColor, topShape } = isTest
@@ -608,6 +578,16 @@ export class GardenScene extends Phaser.Scene {
       { fontSize: '7px', color: '#a0c8a0', fontFamily: 'monospace' },
     ).setOrigin(0.5, 0);
     container.add(label);
+
+    // Role attribution dot
+    if (creatorRole && creatorRole !== 'unassigned') {
+      const dotColor = creatorRole === 'planter' ? 0x66bb6a
+        : creatorRole === 'weeder' ? 0xffa726
+        : creatorRole === 'tester' ? 0x42a5f5
+        : 0xce93d8;
+      const dot = this.add.circle(0, 4, 3, dotColor).setDepth(15);
+      container.add(dot);
+    }
 
     return container;
   }

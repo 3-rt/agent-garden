@@ -78,8 +78,10 @@ src/
     assets/sprites/            # Pixel art spritesheets (Overworld, character, objects, etc.)
     components/
       DirectoryPicker.tsx      # Shows/changes watched directory
-      StatsPanel.tsx           # Bottom bar: plants, tasks, uptime
+      StatsPanel.tsx           # Bottom bar: plants, tasks, agents, hook status
       ThemePicker.tsx          # Theme dropdown (5 themes)
+      SetupBanner.tsx          # Warning banner when hooks not configured
+      HookSetupModal.tsx       # 3-step wizard to configure Claude Code hooks
       OutputPanel.tsx          # (legacy) Collapsible code output + history
       TaskInput.tsx            # (legacy) Text input for old API mode
       ApiKeyModal.tsx          # (legacy) API key entry modal
@@ -120,8 +122,8 @@ Built the visual garden, sprite system, animations, and rendering pipeline:
 - **5d: Spawning & Lifecycle** ✅ — Spawn headless agents, term/stop buttons, SIGTERM+SIGKILL cleanup
 - **5e: Head Gardener (Orchestrator)** ✅ — Goal decomposition, task routing, plan tracking, UI with subtask chips
 - **5f: Directory Management** ✅ — Multi-directory support (primary + additional), per-agent overrides, visual grouping
-- **5g: Garden Integration** 🔲 — Plants, stats, weather all driven by real Claude Code activity
-- **5h: Setup UX** 🔲 — Wizard to auto-configure Claude Code hooks
+- **5g: Garden Integration** ✅ — File-agent correlation, plant role attribution, stats wiring, weather triggers
+- **5h: Setup UX** ✅ — SetupBanner, HookSetupModal wizard, auto-configure hooks, connection status indicator
 
 ## Key Technical Details
 
@@ -153,6 +155,17 @@ No centralized store. State is distributed:
 ### Garden Output
 Plants grow when Claude Code agents create/modify files in the watched directory. The FileWatcher detects changes and triggers plant growth. Multiple directories can be active if agents target different paths.
 
+File-agent correlation: When a Claude Code agent writes a file (detected via PostToolUse hook), the app records the agent ID and role in a 2-second TTL buffer. When the FileWatcher detects the new file, it enriches the event with the correlated agent info. Plants display a role-colored dot showing which agent created them.
+
+### Hook Connection Status
+The app tracks hook event timestamps to determine connection status:
+- **Connected** (green): received a hook event within the last 60 seconds
+- **Waiting** (yellow): hook server running but no recent events
+- **Not configured** (gray): `~/.claude/settings.json` doesn't reference the hook server
+
+### Setup UX
+On first launch, the app checks if Claude Code hooks are configured. If not, a banner appears offering to auto-configure them. The HookSetupModal provides a 3-step wizard: view config snippet → auto-configure or manual setup → verify configuration.
+
 ## How to Run
 
 ```bash
@@ -166,5 +179,5 @@ Requires [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) insta
 ## Tests
 
 ```bash
-node test-all.js    # 199 tests (all passing)
+node test-all.js    # 231 tests (all passing)
 ```

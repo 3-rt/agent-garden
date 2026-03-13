@@ -90,15 +90,19 @@ Replace the built-in API agents with real Claude Code CLI sessions. The app beco
 - Spawning agents prompts for directory choice when multiple are available
 - `OrchestrationSubtask` supports per-subtask `directory` override
 
-### 5g: Garden Integration 🔲
+### 5g: Garden Integration ✅
 - Plants grow when Claude Code agents create/modify files (detected via hooks + FileWatcher)
+- File-agent correlation buffer attributes plants to the agent that created them (role-colored dot)
 - Stats panel shows: active agent count, tasks delegated, files changed, per-agent status
+- Agent exits trigger weather (sunshine on success, rain on failure)
+- TimeLapse snapshots use activeAgents instead of tokensUsed
 - Existing Phase 1–4 visual features (day/night, weather, themes, particles) all apply to Claude Code agents
 
-### 5h: Setup & Connection UX 🔲
+### 5h: Setup & Connection UX ✅
 - First-run wizard:
   1. Auto-detect if `claude` CLI is installed
   2. Generate hooks JSON config snippet for `~/.claude/settings.json`
   3. Offer to auto-configure hooks (write to settings.json with user permission)
-- Connection status indicator (green = receiving hooks, gray = no hooks, red = error)
-- Agent management panel: role assignment dropdown, detailed per-agent status
+- Connection status indicator (green = receiving hooks, yellow = waiting, gray = not configured)
+- SetupBanner warns when hooks aren't configured, with dismiss and configure options
+- HookSetupModal: 3-step wizard (view config → auto-configure/manual → verify)

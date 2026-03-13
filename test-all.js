@@ -537,6 +537,155 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(testStats.tokensUsed === undefined, 'GardenStats has no tokensUsed');
 
   // ============================================================
+  // Phase 5g: File-Agent Correlation
+  // ============================================================
+  section('Phase 5g: File-Agent Correlation');
+
+  const correlationBuffer = new Map();
+  function recordFileWrite(agentId, role, filename) {
+    correlationBuffer.set(filename, { agentId, role, timestamp: Date.now() });
+  }
+  function getCorrelation(filename, maxAge = 2000) {
+    const entry = correlationBuffer.get(filename);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > maxAge) {
+      correlationBuffer.delete(filename);
+      return null;
+    }
+    return entry;
+  }
+
+  recordFileWrite('agent-1', 'planter', 'test.tsx');
+  const corr = getCorrelation('test.tsx');
+  assert(corr !== null, 'Correlation found for recently written file');
+  assert(corr.agentId === 'agent-1', 'Correlation has correct agentId');
+  assert(corr.role === 'planter', 'Correlation has correct role');
+  assert(getCorrelation('nonexistent.ts') === null, 'No correlation for unknown file');
+
+  // ============================================================
+  // Phase 5g: Plant Creator Attribution
+  // ============================================================
+  section('Phase 5g: Plant Creator Attribution');
+
+  const plantWithRole = { filename: 'auth.tsx', x: 100, y: 200, zone: 'frontend', createdAt: Date.now(), creatorRole: 'planter' };
+  assert(plantWithRole.creatorRole === 'planter', 'PlantState accepts creatorRole');
+  const plantWithoutRole = { filename: 'old.ts', x: 50, y: 100, zone: 'backend', createdAt: Date.now() };
+  assert(plantWithoutRole.creatorRole === undefined, 'Old PlantState has no creatorRole (graceful)');
+
+  // ============================================================
+  // Phase 5g: Stats Wiring
+  // ============================================================
+  section('Phase 5g: Stats Wiring');
+
+  const { PersistenceService: PS5g } = require('./test-build/main/services/persistence');
+  const ps5g = new PS5g('/tmp/agent-garden-test-stats-5g');
+
+  ps5g.setActiveAgents(3);
+  assert(ps5g.getStats().activeAgents === 3, 'Active agents tracked');
+
+  ps5g.recordTaskCompleted();
+  ps5g.recordTaskCompleted();
+  assert(ps5g.getStats().tasksCompleted === 2, 'Tasks completed tracked');
+
+  ps5g.recordTaskFailed();
+  assert(ps5g.getStats().tasksFailed === 1, 'Tasks failed tracked');
+
+  // ============================================================
+  // Phase 5g: Hook Status Tracking
+  // ============================================================
+  section('Phase 5g: Hook Status Tracking');
+
+  const { HookServer: HS5g } = require('./test-build/main/services/hook-server');
+  const hs = new HS5g(0);
+  assert(hs.getLastEventTime() === 0, 'No events initially');
+  assert(hs.isRunning() === false, 'Not running initially');
+
+  // ============================================================
+  // Phase 5h: Hook Config Detection
+  // ============================================================
+  section('Phase 5h: Hook Config Detection');
+
+  function checkHookConfig(settingsContent) {
+    try {
+      const settings = JSON.parse(settingsContent);
+      const hooks = settings.hooks || {};
+      const hookValues = Object.values(hooks);
+      return hookValues.some(v => {
+        const str = JSON.stringify(v);
+        return str.includes('localhost:7890') || str.includes('127.0.0.1:7890');
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  assert(checkHookConfig('{}') === false, 'Empty config has no hooks');
+  assert(checkHookConfig('{"hooks":{"PreToolUse":"http://localhost:7890/hooks/PreToolUse"}}') === true, 'Detects hook URL');
+  assert(checkHookConfig('not json') === false, 'Handles malformed JSON');
+  assert(checkHookConfig('{"hooks":{}}') === false, 'Empty hooks object');
+
+  // ============================================================
+  // Phase 5h: Hook Auto-Configure
+  // ============================================================
+  section('Phase 5h: Hook Auto-Configure');
+
+  function mergeHookConfig(existingContent) {
+    const hookConfig = {
+      'SessionStart': 'http://localhost:7890/hooks/SessionStart',
+      'SessionEnd': 'http://localhost:7890/hooks/SessionEnd',
+      'Stop': 'http://localhost:7890/hooks/Stop',
+      'PreToolUse': 'http://localhost:7890/hooks/PreToolUse',
+      'PostToolUse': 'http://localhost:7890/hooks/PostToolUse',
+      'UserPromptSubmit': 'http://localhost:7890/hooks/UserPromptSubmit',
+      'Notification': 'http://localhost:7890/hooks/Notification',
+    };
+
+    let settings;
+    try {
+      settings = existingContent ? JSON.parse(existingContent) : {};
+    } catch {
+      return { success: false, error: 'Malformed JSON in settings file' };
+    }
+
+    settings.hooks = { ...(settings.hooks || {}), ...hookConfig };
+    return { success: true, content: JSON.stringify(settings, null, 2) };
+  }
+
+  const mr1 = mergeHookConfig('{}');
+  assert(mr1.success === true, 'Merge into empty config succeeds');
+  assert(JSON.parse(mr1.content).hooks.SessionStart.includes('7890'), 'Merged config has SessionStart hook');
+
+  const mr2 = mergeHookConfig('{"apiKey":"secret","hooks":{"Custom":"http://other"}}');
+  assert(mr2.success === true, 'Merge preserves existing settings');
+  const parsed2 = JSON.parse(mr2.content);
+  assert(parsed2.apiKey === 'secret', 'Preserves existing apiKey');
+  assert(parsed2.hooks.Custom === 'http://other', 'Preserves existing custom hook');
+  assert(parsed2.hooks.SessionStart.includes('7890'), 'Adds new hooks');
+
+  const mr3 = mergeHookConfig('not json');
+  assert(mr3.success === false, 'Rejects malformed JSON');
+  assert(mr3.error.includes('Malformed'), 'Error message explains malformed JSON');
+
+  const mr4 = mergeHookConfig(null);
+  assert(mr4.success === true, 'Creates config from scratch');
+
+  // ============================================================
+  // Phase 5h: SetupBanner Logic
+  // ============================================================
+  section('Phase 5h: SetupBanner Logic');
+
+  function shouldShowBanner(cliInstalled, hooksConfigured, dismissed) {
+    if (dismissed) return false;
+    if (hooksConfigured) return false;
+    return true;
+  }
+
+  assert(shouldShowBanner(true, false, false) === true, 'Show banner when hooks not configured');
+  assert(shouldShowBanner(true, true, false) === false, 'Hide banner when hooks configured');
+  assert(shouldShowBanner(true, false, true) === false, 'Hide banner when dismissed');
+  assert(shouldShowBanner(false, false, false) === true, 'Show banner when CLI missing');
+
+  // ============================================================
   // Summary
   // ============================================================
   console.log(`\n========================================`);

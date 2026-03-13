@@ -13,10 +13,15 @@ const VALID_EVENT_TYPES: Set<string> = new Set([
 export class HookServer extends EventEmitter {
   private server: http.Server | null = null;
   private port: number;
+  private lastEventTime = 0;
 
   constructor(port: number = DEFAULT_PORT) {
     super();
     this.port = port;
+  }
+
+  getLastEventTime(): number {
+    return this.lastEventTime;
   }
 
   start(): Promise<void> {
@@ -102,6 +107,7 @@ export class HookServer extends EventEmitter {
         }
 
         this.emit('hook', hookEvent);
+        this.lastEventTime = Date.now();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
       } catch {

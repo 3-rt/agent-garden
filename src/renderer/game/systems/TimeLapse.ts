@@ -2,7 +2,7 @@ export interface GardenSnapshot {
   timestamp: number;
   plants: { filename: string; x: number; y: number; zone: string }[];
   agents: { id: string; role: string; state: string; x: number; totalTokens: number }[];
-  stats: { filesCreated: number; tasksCompleted: number; tokensUsed: number };
+  stats: { filesCreated: number; tasksCompleted: number; activeAgents: number };
 }
 
 export class TimeLapse {

@@ -9,6 +9,8 @@ import { ProcessScanner } from './services/process-scanner';
 import { ClaudeCodeManager } from './services/claude-code-manager';
 import { HeadGardener } from './services/head-gardener';
 
+import type { AgentRole } from '../shared/types';
+
 let mainWindow: BrowserWindow | null = null;
 const watcher = new FileWatcher();
 let persistence: PersistenceService;
@@ -18,6 +20,24 @@ const processScanner = new ProcessScanner();
 const ccManager = new ClaudeCodeManager();
 let headGardener: HeadGardener;
 
+// File-agent correlation buffer: maps filename → { agentId, role, timestamp }
+const fileAgentBuffer = new Map<string, { agentId: string; role: AgentRole; timestamp: number }>();
+const CORRELATION_TTL = 2000; // 2 seconds
+
+function recordAgentFileWrite(agentId: string, role: AgentRole, filename: string) {
+  fileAgentBuffer.set(filename, { agentId, role, timestamp: Date.now() });
+}
+
+function getFileCorrelation(filename: string): { agentId: string; role: AgentRole } | null {
+  const entry = fileAgentBuffer.get(filename);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CORRELATION_TTL) {
+    fileAgentBuffer.delete(filename);
+    return null;
+  }
+  return { agentId: entry.agentId, role: entry.role };
+}
+
 // Config persistence
 const configPath = path.join(app.getPath('userData'), 'agent-garden-config.json');
 
@@ -25,6 +45,7 @@ interface AppConfig {
   watchDirectory: string;
   additionalDirectories?: string[];
   theme?: string;
+  bannerDismissed?: boolean;
 }
 
 function loadConfig(): AppConfig {
@@ -47,6 +68,15 @@ function saveConfig(config: Partial<AppConfig>) {
 
 function startWatcher(directory: string) {
   watcher.start(directory, (event) => {
+    // Enrich with agent correlation
+    if (event.type === 'created' || event.type === 'modified') {
+      const filename = event.path.split('/').pop() || event.path;
+      const correlation = getFileCorrelation(filename);
+      if (correlation) {
+        event.agentId = correlation.agentId;
+        event.creatorRole = correlation.role;
+      }
+    }
     mainWindow?.webContents.send('file:event', event);
   });
 }
@@ -180,9 +210,131 @@ app.whenReady().then(() => {
 
   // --- Claude Code Hook Server & Tracker ---
 
-  // Wire hook events to tracker
+  // Wire hook events to tracker and correlation buffer
   hookServer.on('hook', (event) => {
     ccTracker.handleHookEvent(event);
+
+    // Record file writes for plant attribution
+    if (event.type === 'PostToolUse' && event.file && event.tool) {
+      const toolLower = event.tool.toLowerCase();
+      if (toolLower.includes('write') || toolLower.includes('edit') ||
+          toolLower.includes('create') || toolLower.includes('bash') ||
+          toolLower.includes('execute')) {
+        const session = ccTracker.getSession(event.sessionId);
+        if (session) {
+          const filename = event.file.split('/').pop() || event.file;
+          recordAgentFileWrite(session.agentId, session.role, filename);
+        }
+      }
+    }
+  });
+
+  // Hook status tracking
+  let lastBroadcastedHookStatus: string = 'waiting';
+
+  function broadcastHookStatus() {
+    const lastEvent = hookServer.getLastEventTime();
+    let status: string;
+    if (lastEvent === 0) {
+      status = 'waiting';
+    } else if (Date.now() - lastEvent < 60_000) {
+      status = 'connected';
+    } else {
+      status = 'waiting';
+    }
+    if (status !== lastBroadcastedHookStatus) {
+      lastBroadcastedHookStatus = status;
+      mainWindow?.webContents.send('hooks:status-changed', status);
+    }
+  }
+
+  hookServer.on('hook', () => broadcastHookStatus());
+  setInterval(() => broadcastHookStatus(), 10_000);
+
+  ipcMain.handle('hooks:status', () => {
+    const lastEvent = hookServer.getLastEventTime();
+    if (lastEvent === 0) {
+      // Check if hooks are even configured
+      try {
+        const homedir = require('os').homedir();
+        const settingsPath = path.join(homedir, '.claude', 'settings.json');
+        if (existsSync(settingsPath)) {
+          const content = readFileSync(settingsPath, 'utf-8');
+          const hookStr = JSON.stringify(JSON.parse(content).hooks || {});
+          if (!hookStr.includes('localhost:7890') && !hookStr.includes('127.0.0.1:7890')) {
+            return 'not-configured';
+          }
+        } else {
+          return 'not-configured';
+        }
+      } catch {}
+      return 'waiting';
+    }
+    return Date.now() - lastEvent < 60_000 ? 'connected' : 'waiting';
+  });
+
+  // Phase 5h: Hook configuration detection
+  ipcMain.handle('hooks:check-config', async () => {
+    const cliInstalled = (await ccManager.detectClaude()) !== null;
+
+    let hooksConfigured = false;
+    try {
+      const homedir = require('os').homedir();
+      const settingsPath = path.join(homedir, '.claude', 'settings.json');
+      if (existsSync(settingsPath)) {
+        const content = readFileSync(settingsPath, 'utf-8');
+        const settings = JSON.parse(content);
+        const hooks = settings.hooks || {};
+        const hookStr = JSON.stringify(hooks);
+        hooksConfigured = hookStr.includes('localhost:7890') || hookStr.includes('127.0.0.1:7890');
+      }
+    } catch {}
+
+    return { cliInstalled, hooksConfigured };
+  });
+
+  ipcMain.handle('hooks:auto-configure', async () => {
+    const hookConfig: Record<string, string> = {
+      'SessionStart': 'http://localhost:7890/hooks/SessionStart',
+      'SessionEnd': 'http://localhost:7890/hooks/SessionEnd',
+      'Stop': 'http://localhost:7890/hooks/Stop',
+      'PreToolUse': 'http://localhost:7890/hooks/PreToolUse',
+      'PostToolUse': 'http://localhost:7890/hooks/PostToolUse',
+      'UserPromptSubmit': 'http://localhost:7890/hooks/UserPromptSubmit',
+      'Notification': 'http://localhost:7890/hooks/Notification',
+    };
+
+    try {
+      const homedir = require('os').homedir();
+      const claudeDir = path.join(homedir, '.claude');
+      const settingsPath = path.join(claudeDir, 'settings.json');
+
+      let settings: Record<string, any> = {};
+      if (existsSync(settingsPath)) {
+        const content = readFileSync(settingsPath, 'utf-8');
+        try {
+          settings = JSON.parse(content);
+        } catch {
+          return { success: false, error: 'Malformed JSON in ~/.claude/settings.json. Please fix manually.' };
+        }
+      } else {
+        if (!existsSync(claudeDir)) mkdirSync(claudeDir, { recursive: true });
+      }
+
+      settings.hooks = { ...(settings.hooks || {}), ...hookConfig };
+      writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to write settings' };
+    }
+  });
+
+  ipcMain.handle('setup:check-banner-dismissed', () => {
+    return loadConfig().bannerDismissed === true;
+  });
+
+  ipcMain.on('setup:dismiss-banner', () => {
+    saveConfig({ bannerDismissed: true });
   });
 
   hookServer.on('listening', (port: number) => {
@@ -205,6 +357,17 @@ app.whenReady().then(() => {
   ccTracker.on('disconnected', (data) => {
     mainWindow?.webContents.send('cc-agent:disconnected', data);
   });
+
+  // Update stats on agent lifecycle events
+  function updateActiveAgentCount() {
+    const count = ccTracker.getActiveSessions().length;
+    persistence.setActiveAgents(count);
+    const stats = persistence.getStats();
+    mainWindow?.webContents.send('stats:updated', stats);
+  }
+
+  ccTracker.on('connected', () => updateActiveAgentCount());
+  ccTracker.on('disconnected', () => updateActiveAgentCount());
 
   // IPC: get all tracked Claude Code agents
   ipcMain.handle('cc-agents:list', () => {
@@ -247,6 +410,14 @@ app.whenReady().then(() => {
   ccManager.on('exited', (data) => {
     ccTracker.removeSpawnedSession(data.sessionId);
     mainWindow?.webContents.send('cc-agent:exited', data);
+
+    // Track task completion/failure
+    if (data.code === 0) {
+      persistence.recordTaskCompleted();
+    } else {
+      persistence.recordTaskFailed();
+    }
+    updateActiveAgentCount();
   });
 
   ccManager.on('error', (msg: string) => {

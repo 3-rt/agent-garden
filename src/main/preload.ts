@@ -72,6 +72,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onCCAgentExited: (callback: (data: { agentId: string; sessionId: string; code: number | null }) => void) => {
     ipcRenderer.on('cc-agent:exited', (_event, data) => callback(data));
   },
+  // Hook status
+  getHookStatus: () => ipcRenderer.invoke('hooks:status'),
+  onHookStatusChanged: (callback: (status: string) => void) => {
+    ipcRenderer.on('hooks:status-changed', (_event, status) => callback(status));
+  },
+  // Setup UX (Phase 5h)
+  checkHookConfig: () => ipcRenderer.invoke('hooks:check-config'),
+  autoConfigureHooks: () => ipcRenderer.invoke('hooks:auto-configure'),
+  checkBannerDismissed: () => ipcRenderer.invoke('setup:check-banner-dismissed'),
+  dismissBanner: () => ipcRenderer.send('setup:dismiss-banner'),
   // Head Gardener orchestration
   submitGoal: (goal: string) => ipcRenderer.invoke('head-gardener:submit-goal', goal),
   getPlans: () => ipcRenderer.invoke('head-gardener:get-plans'),
