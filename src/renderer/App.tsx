@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GardenGame } from './game/GardenGame';
 import { DirectoryPicker } from './components/DirectoryPicker';
-import { StatsPanel, GardenStatsData } from './components/StatsPanel';
+import { StatsPanel } from './components/StatsPanel';
 import { ThemePicker } from './components/ThemePicker';
 import { ThemeManager } from './game/systems/ThemeManager';
-import type { CCAgentSession, OrchestrationPlan } from '../shared/types';
+import type { CCAgentSession, OrchestrationPlan, GardenStats, HookConnectionStatus } from '../shared/types';
 
 const availableThemes = ThemeManager.getAvailableThemes();
 
@@ -14,13 +14,14 @@ export function App() {
   const [directory, setDirectory] = useState('');
   const [additionalDirectories, setAdditionalDirectories] = useState<string[]>([]);
   const [lastError, setLastError] = useState('');
-  const [stats, setStats] = useState<GardenStatsData>({
+  const [stats, setStats] = useState<GardenStats>({
     filesCreated: 0,
     tasksCompleted: 0,
     tasksFailed: 0,
-    tokensUsed: 0,
+    activeAgents: 0,
     sessionStart: Date.now(),
   });
+  const [hookStatus, setHookStatus] = useState<HookConnectionStatus>('waiting');
   const [currentTheme, setCurrentTheme] = useState('garden');
   const [ccAgents, setCCAgents] = useState<CCAgentSession[]>([]);
   const [plans, setPlans] = useState<OrchestrationPlan[]>([]);
@@ -402,7 +403,7 @@ export function App() {
           <DirectoryPicker directory={directory} additionalDirectories={additionalDirectories} />
         </div>
       </div>
-      <StatsPanel stats={stats} plantCount={plantCount} />
+      <StatsPanel stats={stats} plantCount={plantCount} hookStatus={hookStatus} />
     </div>
   );
 }

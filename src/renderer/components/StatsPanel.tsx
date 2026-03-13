@@ -1,25 +1,18 @@
 import React from 'react';
-
-export interface GardenStatsData {
-  filesCreated: number;
-  tasksCompleted: number;
-  tasksFailed: number;
-  tokensUsed: number;
-  sessionStart: number;
-}
+import type { GardenStats, HookConnectionStatus } from '../../shared/types';
 
 interface StatsPanelProps {
-  stats: GardenStatsData;
+  stats: GardenStats;
   plantCount: number;
+  hookStatus?: HookConnectionStatus;
 }
 
-export function StatsPanel({ stats, plantCount }: StatsPanelProps) {
+export function StatsPanel({ stats, plantCount, hookStatus }: StatsPanelProps) {
   const uptime = Math.floor((Date.now() - stats.sessionStart) / 60000);
   const successRate = stats.tasksCompleted + stats.tasksFailed > 0
     ? Math.round((stats.tasksCompleted / (stats.tasksCompleted + stats.tasksFailed)) * 100)
     : 100;
 
-  // Garden health: weighted score
   const health = Math.min(100, Math.round(
     (successRate * 0.5) +
     (Math.min(plantCount, 20) / 20 * 30) +
@@ -27,6 +20,13 @@ export function StatsPanel({ stats, plantCount }: StatsPanelProps) {
   ));
 
   const healthColor = health >= 80 ? '#66bb6a' : health >= 50 ? '#ffca28' : '#ef5350';
+
+  const hookDot = hookStatus === 'connected' ? '#66bb6a'
+    : hookStatus === 'waiting' ? '#ffca28'
+    : '#555';
+  const hookLabel = hookStatus === 'connected' ? 'Connected'
+    : hookStatus === 'waiting' ? 'Waiting'
+    : 'Not configured';
 
   return (
     <div style={{
@@ -45,8 +45,21 @@ export function StatsPanel({ stats, plantCount }: StatsPanelProps) {
       <StatItem label="Files" value={`${stats.filesCreated}`} color="#42a5f5" />
       <StatItem label="Tasks" value={`${stats.tasksCompleted}`} color="#7ec8e3" />
       <StatItem label="Errors" value={`${stats.tasksFailed}`} color={stats.tasksFailed > 0 ? '#ef5350' : '#555'} />
-      <StatItem label="Tokens" value={formatTokens(stats.tokensUsed)} color="#ab47bc" />
+      <StatItem label="Agents" value={`${stats.activeAgents}`} color="#ab47bc" />
       <StatItem label="Uptime" value={`${uptime}m`} color="#555" />
+      <span>
+        <span style={{ opacity: 0.5 }}>Hooks: </span>
+        <span style={{
+          display: 'inline-block',
+          width: '6px',
+          height: '6px',
+          borderRadius: '50%',
+          background: hookDot,
+          marginRight: '4px',
+          verticalAlign: 'middle',
+        }} />
+        <span style={{ color: hookDot }}>{hookLabel}</span>
+      </span>
     </div>
   );
 }
@@ -58,10 +71,4 @@ function StatItem({ label, value, color }: { label: string; value: string; color
       <span style={{ color }}>{value}</span>
     </span>
   );
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return `${n}`;
 }
