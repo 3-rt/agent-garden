@@ -19,6 +19,8 @@ const ccTracker = new ClaudeCodeTracker();
 const processScanner = new ProcessScanner();
 const ccManager = new ClaudeCodeManager();
 let headGardener: HeadGardener;
+let hookStatusTimer: ReturnType<typeof setInterval>;
+let autoSaveTimer: ReturnType<typeof setInterval>;
 
 // File-agent correlation buffer: maps filename → { agentId, role, timestamp }
 const fileAgentBuffer = new Map<string, { agentId: string; role: AgentRole; timestamp: number }>();
@@ -249,7 +251,7 @@ app.whenReady().then(() => {
   }
 
   hookServer.on('hook', () => broadcastHookStatus());
-  setInterval(() => broadcastHookStatus(), 10_000);
+  hookStatusTimer = setInterval(() => broadcastHookStatus(), 10_000);
 
   ipcMain.handle('hooks:status', () => {
     const lastEvent = hookServer.getLastEventTime();
@@ -485,12 +487,15 @@ app.whenReady().then(() => {
   });
 
   // Auto-save garden state periodically
-  setInterval(() => {
+  autoSaveTimer = setInterval(() => {
     mainWindow?.webContents.send('garden:request-save');
   }, 30_000);
 });
 
 app.on('window-all-closed', () => {
+  clearInterval(hookStatusTimer);
+  clearInterval(autoSaveTimer);
+  mainWindow = null;
   ccManager.stopAll();
   watcher.stop();
   processScanner.stop();
