@@ -382,11 +382,13 @@ app.whenReady().then(() => {
   // --- Process Scanner ---
 
   processScanner.on('detected', (proc) => {
-    // Only register process-scanned agents that are working in a watched directory
-    if (!proc.directory) return; // No directory info — can't attribute, skip
-    const watchedDirs = [watcher.getDirectory(), ...watcher.getAdditionalDirectories()];
-    const isRelevant = watchedDirs.some(d => d && proc.directory.startsWith(d));
-    if (!isRelevant) return;
+    // If process has a known directory that doesn't match any watched dir, skip it
+    if (proc.directory) {
+      const watchedDirs = [watcher.getDirectory(), ...watcher.getAdditionalDirectories()];
+      const isRelevant = watchedDirs.some(d => d && proc.directory.startsWith(d));
+      if (!isRelevant) return;
+    }
+    // Allow through: processes with matching dir OR unknown dir (benefit of the doubt)
     ccTracker.registerProcessSession(proc.pid, proc.directory);
   });
 
