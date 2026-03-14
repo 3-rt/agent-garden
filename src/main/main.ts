@@ -382,6 +382,11 @@ app.whenReady().then(() => {
   // --- Process Scanner ---
 
   processScanner.on('detected', (proc) => {
+    // Only register process-scanned agents that are working in a watched directory
+    if (!proc.directory) return; // No directory info — can't attribute, skip
+    const watchedDirs = [watcher.getDirectory(), ...watcher.getAdditionalDirectories()];
+    const isRelevant = watchedDirs.some(d => d && proc.directory.startsWith(d));
+    if (!isRelevant) return;
     ccTracker.registerProcessSession(proc.pid, proc.directory);
   });
 

@@ -331,6 +331,23 @@ export class GardenScene extends Phaser.Scene {
     }
   }
 
+  clearPlants() {
+    for (const plant of this.plantMap.values()) {
+      plant.destroy();
+    }
+    this.plantMap.clear();
+    this.plantPositions.clear();
+    for (const key of Object.keys(ZONE_LAYOUT)) {
+      this.zonePlantSlots.set(key, 0);
+    }
+    // Clear directory tracking and labels
+    this.activeDirectories.clear();
+    for (const label of this.directoryLabels.values()) {
+      label.destroy();
+    }
+    this.directoryLabels.clear();
+  }
+
   onFileDeleted(filename: string, directory?: string) {
     const key = directory && this.activeDirectories.size > 1
       ? `${directory}:${filename}` : filename;

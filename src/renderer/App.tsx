@@ -67,7 +67,10 @@ export function App() {
       }
     });
 
-    window.electronAPI?.onDirectoryChanged((dir) => setDirectory(dir));
+    window.electronAPI?.onDirectoryChanged((dir) => {
+      setDirectory(dir);
+      gameRef.current?.clearPlants();
+    });
 
     // Directory management (Phase 5f)
     window.electronAPI?.getDirectories().then((dirs) => {

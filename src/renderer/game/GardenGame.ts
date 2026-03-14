@@ -45,6 +45,10 @@ export class GardenGame {
     this.scene?.onFileCreated(filename, directory, creatorRole);
   }
 
+  clearPlants() {
+    this.scene?.clearPlants();
+  }
+
   onFileDeleted(filename: string, directory?: string) {
     this.scene?.onFileDeleted(filename, directory);
   }
