@@ -27,6 +27,12 @@ export class ProcessScanner extends EventEmitter {
     this.knownPids.clear();
   }
 
+  /** Clear known PIDs so the next scan re-evaluates all processes. */
+  rescan() {
+    this.knownPids.clear();
+    this.scan();
+  }
+
   private scan() {
     // Use ps to find claude processes
     // -e: all processes, -o: output format
@@ -60,12 +66,16 @@ export class ProcessScanner extends EventEmitter {
       if (!this.knownPids.has(pid)) {
         // New process detected
         this.knownPids.add(pid);
-        const detected: DetectedProcess = {
-          pid,
-          args,
-          directory: this.extractDirectory(args),
-        };
-        this.emit('detected', detected);
+        const directory = this.extractDirectory(args);
+
+        if (directory) {
+          this.emit('detected', { pid, args, directory } as DetectedProcess);
+        } else {
+          // No directory in args — look up actual cwd via lsof
+          this.lookupProcessCwd(pid, (cwd) => {
+            this.emit('detected', { pid, args, directory: cwd } as DetectedProcess);
+          });
+        }
       }
     }
 
@@ -76,6 +86,18 @@ export class ProcessScanner extends EventEmitter {
         this.emit('exited', pid);
       }
     }
+  }
+
+  private lookupProcessCwd(pid: number, callback: (cwd: string | undefined) => void) {
+    execFile('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { timeout: 3000 }, (err, stdout) => {
+      if (err || !stdout) {
+        callback(undefined);
+        return;
+      }
+      // lsof -Fn outputs lines starting with 'n' for the name field
+      const match = stdout.match(/^n(.+)$/m);
+      callback(match ? match[1] : undefined);
+    });
   }
 
   private isClaudeProcess(line: string): boolean {

@@ -176,6 +176,21 @@ export class ClaudeCodeTracker extends EventEmitter {
     return this.getAllSessions().filter(s => s.status !== 'disconnected');
   }
 
+  /**
+   * Remove all sessions that don't match any of the given directories.
+   * Used when the watched directory changes.
+   */
+  clearSessionsNotIn(directories: string[]): void {
+    for (const [sessionId, session] of this.sessions) {
+      const matches = session.directory &&
+        directories.some(d => session.directory!.startsWith(d));
+      if (!matches) {
+        console.log(`[tracker] removing session ${sessionId} (dir: ${session.directory}) — not in watched dirs: ${directories.join(', ')}`);
+        this.removeSession(sessionId, 'directory changed');
+      }
+    }
+  }
+
   private removeSession(sessionId: string, reason: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;

@@ -142,6 +142,10 @@ app.whenReady().then(() => {
     }
     saveConfig({ watchDirectory: dir });
     headGardener?.setDefaultDirectory(dir);
+    // Clear agents that don't belong to the new set of watched directories
+    const newWatchedDirs = [dir, ...additionalDirs];
+    ccTracker.clearSessionsNotIn(newWatchedDirs);
+    processScanner.rescan();
     mainWindow?.webContents.send('directory:changed', dir);
     broadcastDirectories();
     return dir;
@@ -154,6 +158,8 @@ app.whenReady().then(() => {
       watcher.addDirectory(d);
     }
     saveConfig({ watchDirectory: directory });
+    ccTracker.clearSessionsNotIn([directory, ...additionalDirs]);
+    processScanner.rescan();
   });
 
   // Directory management (Phase 5f)
@@ -182,6 +188,8 @@ app.whenReady().then(() => {
     const cfg = loadConfig();
     const additional = (cfg.additionalDirectories || []).filter(d => d !== dir);
     saveConfig({ additionalDirectories: additional });
+    ccTracker.clearSessionsNotIn([watcher.getDirectory(), ...additional]);
+    processScanner.rescan();
     broadcastDirectories();
   });
 
@@ -214,6 +222,16 @@ app.whenReady().then(() => {
 
   // Wire hook events to tracker and correlation buffer
   hookServer.on('hook', (event) => {
+    // Only track sessions whose directory matches a watched directory
+    const watchedDirs = [watcher.getDirectory(), ...watcher.getAdditionalDirectories()];
+    if (event.directory) {
+      const isRelevant = watchedDirs.some(d => d && event.directory!.startsWith(d));
+      if (!isRelevant) return;
+    } else if (!ccTracker.getSession(event.sessionId)) {
+      // No directory on event and session not already tracked — skip
+      return;
+    }
+
     ccTracker.handleHookEvent(event);
 
     // Record file writes for plant attribution
@@ -296,14 +314,20 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('hooks:auto-configure', async () => {
-    const hookConfig: Record<string, string> = {
-      'SessionStart': 'http://localhost:7890/hooks/SessionStart',
-      'SessionEnd': 'http://localhost:7890/hooks/SessionEnd',
-      'Stop': 'http://localhost:7890/hooks/Stop',
-      'PreToolUse': 'http://localhost:7890/hooks/PreToolUse',
-      'PostToolUse': 'http://localhost:7890/hooks/PostToolUse',
-      'UserPromptSubmit': 'http://localhost:7890/hooks/UserPromptSubmit',
-      'Notification': 'http://localhost:7890/hooks/Notification',
+    // Claude Code hooks schema: each event is an array of matchers,
+    // each matcher has a "hooks" array of {type, url} objects
+    function hookEntry(url: string) {
+      return [{ hooks: [{ type: 'http', url }] }];
+    }
+
+    const hookConfig: Record<string, any> = {
+      'SessionStart': hookEntry('http://localhost:7890/hooks/SessionStart'),
+      'SessionEnd': hookEntry('http://localhost:7890/hooks/SessionEnd'),
+      'Stop': hookEntry('http://localhost:7890/hooks/Stop'),
+      'PreToolUse': hookEntry('http://localhost:7890/hooks/PreToolUse'),
+      'PostToolUse': hookEntry('http://localhost:7890/hooks/PostToolUse'),
+      'UserPromptSubmit': hookEntry('http://localhost:7890/hooks/UserPromptSubmit'),
+      'Notification': hookEntry('http://localhost:7890/hooks/Notification'),
     };
 
     try {
@@ -384,13 +408,11 @@ app.whenReady().then(() => {
   // --- Process Scanner ---
 
   processScanner.on('detected', (proc) => {
-    // If process has a known directory that doesn't match any watched dir, skip it
-    if (proc.directory) {
-      const watchedDirs = [watcher.getDirectory(), ...watcher.getAdditionalDirectories()];
-      const isRelevant = watchedDirs.some(d => d && proc.directory.startsWith(d));
-      if (!isRelevant) return;
-    }
-    // Allow through: processes with matching dir OR unknown dir (benefit of the doubt)
+    // Only register processes whose directory matches a watched directory
+    if (!proc.directory) return;
+    const watchedDirs = [watcher.getDirectory(), ...watcher.getAdditionalDirectories()];
+    const isRelevant = watchedDirs.some(d => d && proc.directory.startsWith(d));
+    if (!isRelevant) return;
     ccTracker.registerProcessSession(proc.pid, proc.directory);
   });
 
