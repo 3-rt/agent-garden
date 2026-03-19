@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentStreamChunk, FileEvent, TaskStatus, FileSaved, AgentInfo, GardenState, GardenStats, PlantState, CCAgentSession, HookEventType, AgentRole, OrchestrationPlan, OrchestrationSubtask } from '../shared/types';
+import type { AgentStreamChunk, FileEvent, TaskStatus, FileSaved, AgentInfo, GardenLayoutState, GardenState, GardenStats, CCAgentSession, HookEventType, AgentRole, OrchestrationPlan, OrchestrationSubtask } from '../shared/types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   submitTask: (prompt: string) => ipcRenderer.send('task:submit', prompt),
@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resetAgentTokens: (agentId: string) => ipcRenderer.send('agent:reset-tokens', agentId),
   getGardenState: () => ipcRenderer.invoke('garden:load'),
   getInitialGarden: () => ipcRenderer.invoke('garden:generate-initial'),
-  saveGardenState: (plants: PlantState[], theme: string) => ipcRenderer.send('garden:save', plants, theme),
+  saveGardenState: (layout: GardenLayoutState, theme: string) => ipcRenderer.send('garden:save', layout, theme),
   getStats: () => ipcRenderer.invoke('garden:stats'),
   setTheme: (themeId: string) => ipcRenderer.send('garden:set-theme', themeId),
   onAgentStream: (callback: (chunk: AgentStreamChunk) => void) => {

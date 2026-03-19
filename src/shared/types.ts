@@ -137,9 +137,12 @@ export interface GardenBedState {
   plantKeys: string[];
 }
 
-export interface GardenState {
+export interface GardenLayoutState {
   plants: PlantState[];
   beds: GardenBedState[];
+}
+
+export interface GardenState extends GardenLayoutState {
   stats: GardenStats;
   theme: string;
   savedAt: number;
@@ -189,8 +192,8 @@ export interface ElectronAPI {
   getAgentInfo: () => Promise<AgentInfo[]>;
   resetAgentTokens: (agentId: string) => void;
   getGardenState: () => Promise<GardenState | null>;
-  getInitialGarden: () => Promise<PlantState[]>;
-  saveGardenState: (plants: PlantState[], theme: string) => void;
+  getInitialGarden: () => Promise<GardenLayoutState>;
+  saveGardenState: (layout: GardenLayoutState, theme: string) => void;
   getStats: () => Promise<GardenStats>;
   setTheme: (themeId: string) => void;
   onAgentStream: (callback: (chunk: AgentStreamChunk) => void) => void;

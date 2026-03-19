@@ -643,6 +643,35 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(plantAfterResize !== undefined, 'Plants are still present after resize rebuild');
   assert(plantAfterResize !== plantBeforeResize, 'Resize rebuilds plant display objects from plant state');
 
+  const restoredBedLayout = {
+    beds: [{
+      id: 'bed-backend-center',
+      zone: 'backend',
+      x: 64,
+      y: 64,
+      width: 80,
+      height: 60,
+      rank: 0,
+      capacity: 4,
+      directoryGroups: ['src/main/services'],
+      plantKeys: ['server.ts'],
+    }],
+    plants: [{
+      filename: 'server.ts',
+      x: 32,
+      y: 48,
+      zone: 'backend',
+      createdAt: 2,
+      bedId: 'bed-backend-center',
+    }],
+  };
+  resizeScene.clearPlants();
+  resizeScene.restoreGardenLayout(restoredBedLayout);
+  const sceneLayout = resizeScene.getGardenLayout();
+  assert(sceneLayout.beds.length === 1, 'GardenScene restores persisted bed layout');
+  assert(sceneLayout.beds[0].id === 'bed-backend-center', 'GardenScene keeps restored bed ids');
+  assert(sceneLayout.plants[0].bedId === 'bed-backend-center', 'GardenScene preserves plant bed membership through restore');
+
   // ============================================================
   // AG-14: Garden Renderer Stability
   // ============================================================
@@ -699,6 +728,19 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   const gameContainer = { clientWidth: 320, clientHeight: 240 };
   const gardenGame = new GardenGameAg14(gameContainer);
   assert(gardenGame.game.config.type === 'CANVAS', 'GardenGame prefers the Canvas renderer for restore stability');
+
+  let forwardedLayout = null;
+  gardenGame.scene = {
+    restoreGardenLayout(layout) {
+      forwardedLayout = layout;
+    },
+    getGardenLayout() {
+      return restoredBedLayout;
+    },
+  };
+  gardenGame.restoreGardenLayout(restoredBedLayout);
+  assert(forwardedLayout.beds[0].id === 'bed-backend-center', 'GardenGame forwards bed-aware restore to the scene');
+  assert(gardenGame.getGardenLayout().beds[0].id === 'bed-backend-center', 'GardenGame reads bed-aware layout from the scene');
 
   // ============================================================
   // Phase 1-2: Filename inference

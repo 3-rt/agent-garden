@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import * as path from 'path';
-import type { PlantState } from '../../shared/types';
+import type { GardenLayoutState, PlantState } from '../../shared/types';
 import { assignGroupsToBeds, buildZoneBeds, type BedLayoutGroup } from '../../shared/garden-bed-layout';
 
 const MAX_GENERATED_FILES = 250;
@@ -163,7 +163,7 @@ function scoreDirectoryGroup(files: ScannedFile[]): number {
   return importanceTotal * 10 + growthTotal * 6 + files.length * 8;
 }
 
-function layoutZone(zoneFiles: ScannedFile[], zone: string, createdAt: number): PlantState[] {
+function layoutZone(zoneFiles: ScannedFile[], zone: string, createdAt: number): GardenLayoutState {
   const zoneLayout: Record<string, { x: number; width: number }> = {
     frontend: { x: 0, width: 0.33 },
     backend: { x: 0.33, width: 0.34 },
@@ -205,10 +205,10 @@ function layoutZone(zoneFiles: ScannedFile[], zone: string, createdAt: number): 
     beds,
     groups,
     createdAt,
-  }).plants;
+  });
 }
 
-export function generateInitialGarden(rootDir: string): PlantState[] {
+export function generateInitialGardenLayout(rootDir: string): GardenLayoutState {
   const scanned: ScannedFile[] = [];
   scanDirectory(rootDir, rootDir, scanned);
 
@@ -219,11 +219,20 @@ export function generateInitialGarden(rootDir: string): PlantState[] {
   const createdAt = Date.now();
   const zones: Array<'frontend' | 'backend' | 'tests'> = ['frontend', 'backend', 'tests'];
 
-  return zones.flatMap((zone) => layoutZone(
-    prioritized.filter((file) => file.zone === zone),
-    zone,
-    createdAt,
-  ));
+  return zones.reduce<GardenLayoutState>((acc, zone) => {
+    const zoneLayout = layoutZone(
+      prioritized.filter((file) => file.zone === zone),
+      zone,
+      createdAt,
+    );
+    acc.plants.push(...zoneLayout.plants);
+    acc.beds.push(...zoneLayout.beds);
+    return acc;
+  }, { plants: [], beds: [] });
+}
+
+export function generateInitialGarden(rootDir: string): PlantState[] {
+  return generateInitialGardenLayout(rootDir).plants;
 }
 
 export function readLineCount(filePath: string): number {

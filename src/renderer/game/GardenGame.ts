@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GardenScene } from './scenes/GardenScene';
-import type { PlantState, AgentRole } from '../../shared/types';
+import type { GardenLayoutState, PlantState, AgentRole } from '../../shared/types';
 
 export class GardenGame {
   private game: Phaser.Game;
@@ -79,8 +79,16 @@ export class GardenGame {
     return this.scene?.getPlantStates() || [];
   }
 
+  getGardenLayout(): GardenLayoutState {
+    return this.scene?.getGardenLayout() || { plants: [], beds: [] };
+  }
+
   restorePlants(plants: PlantState[]) {
     this.scene?.restorePlants(plants);
+  }
+
+  restoreGardenLayout(layout: GardenLayoutState) {
+    this.scene?.restoreGardenLayout(layout);
   }
 
   getPlantCount(): number {

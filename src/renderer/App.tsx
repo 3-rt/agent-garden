@@ -18,6 +18,7 @@ import {
 import type {
   ActivityLogEntry,
   CCAgentSession,
+  GardenLayoutState,
   OrchestrationPlan,
   GardenStats,
   HookConnectionStatus,
@@ -54,11 +55,11 @@ export function App() {
 
   useEffect(() => {
     const restoreGeneratedGarden = async (themeId?: string) => {
-      const generatedPlants = await window.electronAPI?.getInitialGarden();
-      if (!generatedPlants || !generatedPlants.length || !gameRef.current) return;
-      gameRef.current.restorePlants(generatedPlants);
-      window.electronAPI?.saveGardenState(generatedPlants, themeId || gameRef.current.getThemeId());
-      setStats((prev) => ({ ...prev, filesCreated: generatedPlants.length }));
+      const generatedLayout = await window.electronAPI?.getInitialGarden();
+      if (!generatedLayout || !generatedLayout.plants.length || !gameRef.current) return;
+      gameRef.current.restoreGardenLayout(generatedLayout);
+      window.electronAPI?.saveGardenState(generatedLayout, themeId || gameRef.current.getThemeId());
+      setStats((prev) => ({ ...prev, filesCreated: generatedLayout.plants.length }));
     };
 
     const appendLogEntry = (entry: ActivityLogEntry) => {
@@ -99,7 +100,10 @@ export function App() {
           }
 
           if (state && state.plants.length > 0 && gameRef.current) {
-            gameRef.current.restorePlants(state.plants);
+            gameRef.current.restoreGardenLayout({
+              plants: state.plants,
+              beds: state.beds || [],
+            } satisfies GardenLayoutState);
             if (state.stats) {
               setStats(state.stats);
             }
@@ -286,17 +290,17 @@ export function App() {
     // Auto-save: listen for periodic save requests from main process
     window.electronAPI?.onSaveRequested(() => {
       if (gameRef.current) {
-        const plants = gameRef.current.getPlantStates();
+        const layout = gameRef.current.getGardenLayout();
         const theme = gameRef.current.getThemeId();
-        window.electronAPI?.saveGardenState(plants, theme);
+        window.electronAPI?.saveGardenState(layout, theme);
       }
     });
 
     return () => {
       if (gameRef.current) {
-        const plants = gameRef.current.getPlantStates();
+        const layout = gameRef.current.getGardenLayout();
         const theme = gameRef.current.getThemeId();
-        window.electronAPI?.saveGardenState(plants, theme);
+        window.electronAPI?.saveGardenState(layout, theme);
       }
       gameRef.current?.destroy();
       gameRef.current = null;

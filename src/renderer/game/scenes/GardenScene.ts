@@ -3,7 +3,7 @@ import { Agent } from '../sprites/Agent';
 import { TimeLapse, GardenSnapshot } from '../systems/TimeLapse';
 import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
 import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
-import type { AgentRole, PlantState } from '../../../shared/types';
+import type { AgentRole, GardenBedState, GardenLayoutState, PlantState } from '../../../shared/types';
 
 interface ZoneConfig {
   label: string;
@@ -20,12 +20,13 @@ const ZONE_LAYOUT: Record<string, { x: number; width: number }> = {
 export class GardenScene extends Phaser.Scene {
   private agents = new Map<string, Agent>();
   private plantMap = new Map<string, Phaser.GameObjects.Container>();
-  private plantPositions = new Map<string, { x: number; y: number; zone: string; createdAt: number; directory?: string; creatorRole?: AgentRole; growthScale?: number }>();
+  private plantPositions = new Map<string, { x: number; y: number; zone: string; createdAt: number; bedId?: string; directory?: string; creatorRole?: AgentRole; growthScale?: number }>();
   private plantDisplayIndex = new Map<string, string>();
   private zonePlantSlots = new Map<string, number>();
   private accumulatedText = new Map<string, string>();
   private activeDirectories = new Set<string>();
   private directoryLabels = new Map<string, Phaser.GameObjects.Text>();
+  private gardenBeds: GardenBedState[] = [];
 
   // Phase 4 systems
   private timeLapse = new TimeLapse();
@@ -276,6 +277,7 @@ export class GardenScene extends Phaser.Scene {
       y,
       zone,
       createdAt: Date.now(),
+      bedId: undefined,
       directory,
       creatorRole,
       growthScale,
@@ -336,6 +338,7 @@ export class GardenScene extends Phaser.Scene {
     this.plantMap.clear();
     this.plantPositions.clear();
     this.plantDisplayIndex.clear();
+    this.gardenBeds = [];
     for (const key of Object.keys(ZONE_LAYOUT)) {
       this.zonePlantSlots.set(key, 0);
     }
@@ -411,6 +414,7 @@ export class GardenScene extends Phaser.Scene {
         y: pos.y,
         zone: pos.zone,
         createdAt: pos.createdAt,
+        bedId: pos.bedId,
         directory: pos.directory,
         creatorRole: pos.creatorRole,
         growthScale: pos.growthScale,
@@ -433,6 +437,7 @@ export class GardenScene extends Phaser.Scene {
         y: p.y,
         zone: p.zone,
         createdAt: p.createdAt,
+        bedId: p.bedId,
         directory: p.directory,
         creatorRole: p.creatorRole,
         growthScale: p.growthScale,
@@ -451,6 +456,27 @@ export class GardenScene extends Phaser.Scene {
 
   getPlantCount(): number {
     return this.plantPositions.size;
+  }
+
+  getGardenLayout(): GardenLayoutState {
+    return {
+      plants: this.getPlantStates(),
+      beds: this.gardenBeds.map((bed) => ({
+        ...bed,
+        directoryGroups: [...bed.directoryGroups],
+        plantKeys: [...bed.plantKeys],
+      })),
+    };
+  }
+
+  restoreGardenLayout(layout: GardenLayoutState) {
+    this.clearPlants();
+    this.gardenBeds = (layout.beds || []).map((bed) => ({
+      ...bed,
+      directoryGroups: [...bed.directoryGroups],
+      plantKeys: [...bed.plantKeys],
+    }));
+    this.restorePlants(layout.plants || []);
   }
 
   // --- Time-Lapse ---

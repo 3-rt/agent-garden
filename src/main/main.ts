@@ -8,7 +8,7 @@ import { ClaudeCodeTracker } from './services/claude-code-tracker';
 import { ProcessScanner } from './services/process-scanner';
 import { ClaudeCodeManager } from './services/claude-code-manager';
 import { HeadGardener } from './services/head-gardener';
-import { generateInitialGarden } from './services/initial-garden-generator';
+import { generateInitialGardenLayout } from './services/initial-garden-generator';
 
 import type { AgentRole } from '../shared/types';
 
@@ -208,12 +208,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle('garden:generate-initial', () => {
     const directory = watcher.getDirectory();
-    if (!directory) return [];
-    return generateInitialGarden(directory);
+    if (!directory) return { plants: [], beds: [] };
+    return generateInitialGardenLayout(directory);
   });
 
-  ipcMain.on('garden:save', (_event, plants, theme) => {
-    persistence.saveState(plants, theme);
+  ipcMain.on('garden:save', (_event, layout, theme) => {
+    persistence.saveState(layout?.plants || [], theme, layout?.beds || []);
   });
 
   ipcMain.handle('garden:stats', () => {
