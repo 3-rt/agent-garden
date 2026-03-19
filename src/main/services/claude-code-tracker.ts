@@ -101,6 +101,8 @@ export class ClaudeCodeTracker extends EventEmitter {
     if (directory) {
       for (const session of this.sessions.values()) {
         if (session.source === 'hooks' && session.directory === directory) {
+          session.processPid = pid;
+          this.emit('updated', { ...session });
           return; // Already tracked via hooks, skip
         }
       }
@@ -114,6 +116,7 @@ export class ClaudeCodeTracker extends EventEmitter {
       role: 'unassigned',
       status: 'idle',
       source: 'process',
+      processPid: pid,
       directory,
       lastActivity: Date.now(),
     };
@@ -126,7 +129,18 @@ export class ClaudeCodeTracker extends EventEmitter {
    */
   removeProcessSession(pid: number): void {
     const sessionId = `pid-${pid}`;
-    this.removeSession(sessionId, 'process exited');
+    const processSession = this.sessions.get(sessionId);
+    if (processSession) {
+      this.removeSession(sessionId, 'process exited');
+      return;
+    }
+
+    for (const [existingSessionId, session] of this.sessions) {
+      if (session.processPid === pid) {
+        this.removeSession(existingSessionId, 'process exited');
+        return;
+      }
+    }
   }
 
   /**

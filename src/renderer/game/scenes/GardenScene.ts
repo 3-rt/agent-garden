@@ -19,7 +19,7 @@ const ZONE_LAYOUT: Record<string, { x: number; width: number }> = {
 export class GardenScene extends Phaser.Scene {
   private agents = new Map<string, Agent>();
   private plantMap = new Map<string, Phaser.GameObjects.Container>();
-  private plantPositions = new Map<string, { x: number; y: number; zone: string; directory?: string; creatorRole?: AgentRole }>();
+  private plantPositions = new Map<string, { x: number; y: number; zone: string; directory?: string; creatorRole?: AgentRole; growthScale?: number }>();
   private zonePlantSlots = new Map<string, number>();
   private accumulatedText = new Map<string, string>();
   private activeDirectories = new Set<string>();
@@ -237,7 +237,7 @@ export class GardenScene extends Phaser.Scene {
     }
   }
 
-  onFileCreated(filename: string, directory?: string, creatorRole?: AgentRole) {
+  onFileCreated(filename: string, directory?: string, creatorRole?: AgentRole, growthScale?: number) {
     // Use directory:filename as key when multiple directories are active
     const key = directory && this.activeDirectories.size > 1
       ? `${directory}:${filename}` : filename;
@@ -279,9 +279,9 @@ export class GardenScene extends Phaser.Scene {
         : height / 2 + 60 + Math.random() * 40;
     }
 
-    const plant = this.growPlant(x, y, filename, creatorRole);
+    const plant = this.growPlant(x, y, filename, creatorRole, growthScale);
     this.plantMap.set(key, plant);
-    this.plantPositions.set(key, { x, y, zone, directory, creatorRole });
+    this.plantPositions.set(key, { x, y, zone, directory, creatorRole, growthScale });
     this.emitParticles(x, y);
   }
 
@@ -421,6 +421,7 @@ export class GardenScene extends Phaser.Scene {
         createdAt: Date.now(),
         directory: pos.directory,
         creatorRole: pos.creatorRole,
+        growthScale: pos.growthScale,
       });
     }
     return plants;
@@ -435,9 +436,9 @@ export class GardenScene extends Phaser.Scene {
         this.activeDirectories.add(p.directory);
       }
 
-      const container = this.growPlant(p.x, p.y, p.filename, p.creatorRole);
+      const container = this.growPlant(p.x, p.y, p.filename, p.creatorRole, p.growthScale);
       this.plantMap.set(key, container);
-      this.plantPositions.set(key, { x: p.x, y: p.y, zone: p.zone, directory: p.directory, creatorRole: p.creatorRole });
+      this.plantPositions.set(key, { x: p.x, y: p.y, zone: p.zone, directory: p.directory, creatorRole: p.creatorRole, growthScale: p.growthScale });
 
       // Update zone slot count
       const current = this.zonePlantSlots.get(p.zone) || 0;
@@ -547,7 +548,7 @@ export class GardenScene extends Phaser.Scene {
     return zoneStart + normalized * zoneWidth;
   }
 
-  private growPlant(x: number, y: number, filename: string, creatorRole?: AgentRole): Phaser.GameObjects.Container {
+  private growPlant(x: number, y: number, filename: string, creatorRole?: AgentRole, growthScale?: number): Phaser.GameObjects.Container {
     const ext = filename.split('.').pop() || '';
     const isTest = filename.includes('.test.') || filename.includes('.spec.');
     const { stemColor, topColor, topShape } = isTest
@@ -557,7 +558,7 @@ export class GardenScene extends Phaser.Scene {
     const stem = this.add.rectangle(0, 0, 6, 0, stemColor).setOrigin(0.5, 1);
     const container = this.add.container(x, y, [stem]);
 
-    const targetHeight = 20 + Math.random() * 20;
+    const targetHeight = Math.round((20 + Math.random() * 20) * (growthScale || 1));
 
     this.tweens.add({
       targets: stem,
@@ -591,7 +592,7 @@ export class GardenScene extends Phaser.Scene {
 
     const label = this.add.text(
       0, 8,
-      filename.length > 12 ? filename.slice(0, 12) + '..' : filename,
+      filename.length > 16 ? filename.slice(-16) : filename,
       { fontSize: '7px', color: '#a0c8a0', fontFamily: 'monospace' },
     ).setOrigin(0.5, 0);
     container.add(label);

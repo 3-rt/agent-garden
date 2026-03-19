@@ -41,8 +41,8 @@ export class GardenGame {
     this.scene?.completeTask(agentId);
   }
 
-  onFileCreated(filename: string, directory?: string, creatorRole?: AgentRole) {
-    this.scene?.onFileCreated(filename, directory, creatorRole);
+  onFileCreated(filename: string, directory?: string, creatorRole?: AgentRole, growthScale?: number) {
+    this.scene?.onFileCreated(filename, directory, creatorRole, growthScale);
   }
 
   clearPlants() {

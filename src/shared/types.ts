@@ -35,6 +35,7 @@ export interface CCAgentSession {
   role: AgentRole;
   status: CCAgentStatus;
   source: CCAgentSource;
+  processPid?: number;
   directory?: string;
   lastActivity: number;
   lastTool?: string;
@@ -119,6 +120,7 @@ export interface PlantState {
   createdAt: number;
   directory?: string;
   creatorRole?: AgentRole;
+  growthScale?: number;
 }
 
 export interface GardenState {
@@ -143,6 +145,7 @@ export interface ElectronAPI {
   getAgentInfo: () => Promise<AgentInfo[]>;
   resetAgentTokens: (agentId: string) => void;
   getGardenState: () => Promise<GardenState | null>;
+  getInitialGarden: () => Promise<PlantState[]>;
   saveGardenState: (plants: PlantState[], theme: string) => void;
   getStats: () => Promise<GardenStats>;
   setTheme: (themeId: string) => void;

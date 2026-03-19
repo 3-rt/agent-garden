@@ -34,21 +34,32 @@ export function App() {
   const [goalInput, setGoalInput] = useState('');
 
   useEffect(() => {
+    const restoreGeneratedGarden = async (themeId?: string) => {
+      const generatedPlants = await window.electronAPI?.getInitialGarden();
+      if (!generatedPlants || !generatedPlants.length || !gameRef.current) return;
+      gameRef.current.restorePlants(generatedPlants);
+      window.electronAPI?.saveGardenState(generatedPlants, themeId || gameRef.current.getThemeId());
+      setStats((prev) => ({ ...prev, filesCreated: generatedPlants.length }));
+    };
+
     if (gameContainerRef.current && !gameRef.current) {
       gameRef.current = new GardenGame(gameContainerRef.current);
 
       // Restore garden state after a short delay (scene needs to initialize)
       setTimeout(() => {
         window.electronAPI?.getGardenState().then((state) => {
-          if (state && gameRef.current) {
+          if (state?.theme && gameRef.current) {
+            gameRef.current.setTheme(state.theme);
+            setCurrentTheme(state.theme);
+          }
+
+          if (state && state.plants.length > 0 && gameRef.current) {
             gameRef.current.restorePlants(state.plants);
-            if (state.theme) {
-              gameRef.current.setTheme(state.theme);
-              setCurrentTheme(state.theme);
-            }
             if (state.stats) {
               setStats(state.stats);
             }
+          } else {
+            restoreGeneratedGarden(state?.theme);
           }
         });
       }, 500);
@@ -70,6 +81,7 @@ export function App() {
     window.electronAPI?.onDirectoryChanged((dir) => {
       setDirectory(dir);
       gameRef.current?.clearPlants();
+      restoreGeneratedGarden();
     });
 
     // Directory management (Phase 5f)

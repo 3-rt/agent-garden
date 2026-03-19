@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAgentInfo: () => ipcRenderer.invoke('agents:info'),
   resetAgentTokens: (agentId: string) => ipcRenderer.send('agent:reset-tokens', agentId),
   getGardenState: () => ipcRenderer.invoke('garden:load'),
+  getInitialGarden: () => ipcRenderer.invoke('garden:generate-initial'),
   saveGardenState: (plants: PlantState[], theme: string) => ipcRenderer.send('garden:save', plants, theme),
   getStats: () => ipcRenderer.invoke('garden:stats'),
   setTheme: (themeId: string) => ipcRenderer.send('garden:set-theme', themeId),

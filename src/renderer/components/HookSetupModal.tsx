@@ -5,15 +5,19 @@ interface HookSetupModalProps {
   onAutoConfigured: () => void;
 }
 
+function hookEntry(url: string) {
+  return [{ hooks: [{ type: 'http', url }] }];
+}
+
 const HOOK_CONFIG = {
   hooks: {
-    SessionStart: 'http://localhost:7890/hooks/SessionStart',
-    SessionEnd: 'http://localhost:7890/hooks/SessionEnd',
-    Stop: 'http://localhost:7890/hooks/Stop',
-    PreToolUse: 'http://localhost:7890/hooks/PreToolUse',
-    PostToolUse: 'http://localhost:7890/hooks/PostToolUse',
-    UserPromptSubmit: 'http://localhost:7890/hooks/UserPromptSubmit',
-    Notification: 'http://localhost:7890/hooks/Notification',
+    SessionStart: hookEntry('http://localhost:7890/hooks/SessionStart'),
+    SessionEnd: hookEntry('http://localhost:7890/hooks/SessionEnd'),
+    Stop: hookEntry('http://localhost:7890/hooks/Stop'),
+    PreToolUse: hookEntry('http://localhost:7890/hooks/PreToolUse'),
+    PostToolUse: hookEntry('http://localhost:7890/hooks/PostToolUse'),
+    UserPromptSubmit: hookEntry('http://localhost:7890/hooks/UserPromptSubmit'),
+    Notification: hookEntry('http://localhost:7890/hooks/Notification'),
   },
 };
 

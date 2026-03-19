@@ -79,6 +79,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   let fileEvents = [];
   watcher.start(watchDir, (event) => fileEvents.push(event));
   assert(watcher.getDirectory() === watchDir, 'getDirectory returns set directory');
+  await new Promise(r => setTimeout(r, 300));
 
   fs.writeFileSync(path.join(watchDir, 'test.txt'), 'hello');
   await new Promise(r => setTimeout(r, 2000));
@@ -629,15 +630,19 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   // ============================================================
   section('Phase 5h: Hook Auto-Configure');
 
+  function hookEntry(url) {
+    return [{ hooks: [{ type: 'http', url }] }];
+  }
+
   function mergeHookConfig(existingContent) {
     const hookConfig = {
-      'SessionStart': 'http://localhost:7890/hooks/SessionStart',
-      'SessionEnd': 'http://localhost:7890/hooks/SessionEnd',
-      'Stop': 'http://localhost:7890/hooks/Stop',
-      'PreToolUse': 'http://localhost:7890/hooks/PreToolUse',
-      'PostToolUse': 'http://localhost:7890/hooks/PostToolUse',
-      'UserPromptSubmit': 'http://localhost:7890/hooks/UserPromptSubmit',
-      'Notification': 'http://localhost:7890/hooks/Notification',
+      'SessionStart': hookEntry('http://localhost:7890/hooks/SessionStart'),
+      'SessionEnd': hookEntry('http://localhost:7890/hooks/SessionEnd'),
+      'Stop': hookEntry('http://localhost:7890/hooks/Stop'),
+      'PreToolUse': hookEntry('http://localhost:7890/hooks/PreToolUse'),
+      'PostToolUse': hookEntry('http://localhost:7890/hooks/PostToolUse'),
+      'UserPromptSubmit': hookEntry('http://localhost:7890/hooks/UserPromptSubmit'),
+      'Notification': hookEntry('http://localhost:7890/hooks/Notification'),
     };
 
     let settings;
@@ -653,14 +658,14 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
 
   const mr1 = mergeHookConfig('{}');
   assert(mr1.success === true, 'Merge into empty config succeeds');
-  assert(JSON.parse(mr1.content).hooks.SessionStart.includes('7890'), 'Merged config has SessionStart hook');
+  assert(JSON.stringify(JSON.parse(mr1.content).hooks.SessionStart).includes('7890'), 'Merged config has SessionStart hook');
 
   const mr2 = mergeHookConfig('{"apiKey":"secret","hooks":{"Custom":"http://other"}}');
   assert(mr2.success === true, 'Merge preserves existing settings');
   const parsed2 = JSON.parse(mr2.content);
   assert(parsed2.apiKey === 'secret', 'Preserves existing apiKey');
   assert(parsed2.hooks.Custom === 'http://other', 'Preserves existing custom hook');
-  assert(parsed2.hooks.SessionStart.includes('7890'), 'Adds new hooks');
+  assert(JSON.stringify(parsed2.hooks.SessionStart).includes('7890'), 'Adds new hooks');
 
   const mr3 = mergeHookConfig('not json');
   assert(mr3.success === false, 'Rejects malformed JSON');
@@ -684,6 +689,87 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(shouldShowBanner(true, true, false) === false, 'Hide banner when hooks configured');
   assert(shouldShowBanner(true, false, true) === false, 'Hide banner when dismissed');
   assert(shouldShowBanner(false, false, false) === true, 'Show banner when CLI missing');
+
+  // ============================================================
+  // AG-8: Session Closure Detection
+  // ============================================================
+  section('AG-8: Session Closure Detection');
+
+  const { ClaudeCodeTracker: TrackerAG8 } = require('./test-build/main/services/claude-code-tracker');
+  const trackerAg8 = new TrackerAG8();
+  let disconnectEvent = null;
+
+  trackerAg8.on('disconnected', (data) => {
+    disconnectEvent = data;
+  });
+
+  trackerAg8.handleHookEvent({
+    type: 'SessionStart',
+    sessionId: 'hook-session-1',
+    timestamp: Date.now(),
+    directory: '/tmp/ag8-project',
+  });
+  assert(trackerAg8.getSession('hook-session-1') !== undefined, 'Hook session registers normally');
+
+  trackerAg8.registerProcessSession(4242, '/tmp/ag8-project');
+  assert(trackerAg8.getSession('hook-session-1').processPid === 4242, 'Hook session keeps deduped process PID for fallback exit detection');
+
+  trackerAg8.removeProcessSession(4242);
+  assert(trackerAg8.getSession('hook-session-1') === undefined, 'Process exit removes deduped hook session');
+  assert(disconnectEvent?.reason === 'process exited', 'Fallback removal reports process exit reason');
+
+  // ============================================================
+  // AG-10: Initial Garden Generation
+  // ============================================================
+  section('AG-10: Initial Garden Generation');
+
+  const osAg10 = require('os');
+  const pathAg10 = require('path');
+  const fsAg10 = require('fs');
+  const {
+    shouldIgnoreRelativePath,
+    scoreRelativePath,
+    generateInitialGarden,
+  } = require('./test-build/main/services/initial-garden-generator');
+
+  assert(shouldIgnoreRelativePath('node_modules/react/index.js') === true, 'Generator ignores node_modules');
+  assert(shouldIgnoreRelativePath('src/main/services/head-gardener.ts') === false, 'Generator keeps source files');
+  assert(
+    scoreRelativePath('src/main/services/head-gardener.ts', 24 * 1024) >
+      scoreRelativePath('package-lock.json', 24 * 1024),
+    'Important source paths score higher than lockfiles',
+  );
+
+  const ag10Dir = fsAg10.mkdtempSync(pathAg10.join(osAg10.tmpdir(), 'ag10-'));
+  fsAg10.mkdirSync(pathAg10.join(ag10Dir, 'src', 'main', 'services'), { recursive: true });
+  fsAg10.mkdirSync(pathAg10.join(ag10Dir, 'src', 'renderer', 'components'), { recursive: true });
+  fsAg10.mkdirSync(pathAg10.join(ag10Dir, 'node_modules', 'ignored-lib'), { recursive: true });
+  fsAg10.writeFileSync(pathAg10.join(ag10Dir, 'src', 'main', 'services', 'head-gardener.ts'), 'export const orchestrate = true;\n'.repeat(200));
+  fsAg10.writeFileSync(pathAg10.join(ag10Dir, 'src', 'renderer', 'components', 'App.tsx'), 'export function App() { return null }\n'.repeat(80));
+  fsAg10.writeFileSync(pathAg10.join(ag10Dir, 'package-lock.json'), '{}');
+  fsAg10.writeFileSync(pathAg10.join(ag10Dir, 'node_modules', 'ignored-lib', 'index.js'), 'module.exports = {}');
+
+  const generatedPlants = generateInitialGarden(ag10Dir);
+  const filenames = generatedPlants.map((plant) => plant.filename);
+  assert(filenames.includes('src/main/services/head-gardener.ts'), 'Generator includes important backend file');
+  assert(filenames.includes('src/renderer/components/App.tsx'), 'Generator includes important frontend file');
+  assert(!filenames.includes('package-lock.json'), 'Generator excludes low-signal lockfile');
+  assert(!filenames.some((filename) => filename.includes('node_modules')), 'Generator excludes ignored directories');
+
+  const backendPlant = generatedPlants.find((plant) => plant.filename === 'src/main/services/head-gardener.ts');
+  const frontendPlant = generatedPlants.find((plant) => plant.filename === 'src/renderer/components/App.tsx');
+  assert(backendPlant.zone === 'backend', 'Generator maps service file to backend zone');
+  assert(frontendPlant.zone === 'frontend', 'Generator maps component file to frontend zone');
+  assert(backendPlant.growthScale > frontendPlant.growthScale, 'Larger, more central file gets higher prominence');
+
+  const generatedPlants2 = generateInitialGarden(ag10Dir);
+  assert(
+    JSON.stringify(generatedPlants.map(({ filename, x, y, zone, growthScale }) => ({ filename, x, y, zone, growthScale }))) ===
+      JSON.stringify(generatedPlants2.map(({ filename, x, y, zone, growthScale }) => ({ filename, x, y, zone, growthScale }))),
+    'Generator output is deterministic apart from timestamps',
+  );
+
+  fsAg10.rmSync(ag10Dir, { recursive: true, force: true });
 
   // ============================================================
   // Summary
