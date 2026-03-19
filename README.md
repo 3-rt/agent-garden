@@ -37,10 +37,12 @@ npm run dev        # Watch mode (then: npx electron . in another terminal)
 
 The app auto-detects running Claude Code sessions via hooks and process scanning. To enable hook integration, configure your `~/.claude/settings.json` to POST events to `http://localhost:7890/hooks/<EventType>`.
 
+The garden renderer uses Phaser's Canvas backend plus resize-time scene rebuilds so minimize/restore stays stable in Electron.
+
 ## Testing
 
 ```bash
-node test-all.js  # 231 tests
+npx tsc --outDir test-build --skipLibCheck && node test-all.js  # 293 tests
 ```
 
 ## Docs

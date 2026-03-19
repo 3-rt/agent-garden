@@ -32,7 +32,7 @@ Phases 1–4 built the visual garden foundation. Phase 5 transforms the app from
 - 5 themes (Garden, Desert, Zen, Underwater, Space) with live switching
 - Time-lapse snapshots (10s interval, max 200)
 - Persistence: auto-save every 30s + on quit (plants, theme, stats)
-- Stats panel: files, tasks, tokens, uptime, health score
+- Stats panel: files, tasks, uptime, health score (later expanded in Phase 5 to active agents and hook status)
 
 ## Phase 5: Head Gardener — Claude Code Orchestration
 

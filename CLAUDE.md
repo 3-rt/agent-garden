@@ -16,7 +16,7 @@ npm run dev            # Webpack watch mode (then: npx electron . separately)
 npx tsc --outDir test-build --skipLibCheck && node test-all.js
 ```
 
-All tests are in `test-all.js` (single file, no framework). Currently 231 tests.
+All tests are in `test-all.js` (single file, no framework). Currently 293 tests.
 
 ## Architecture
 
@@ -31,6 +31,7 @@ Two-process Electron model:
 - TypeScript strict mode, all layers
 - No test framework — plain `assert()` in `test-all.js`
 - Phaser 3 requires `'unsafe-eval'` in CSP (`index.html`)
+- Phaser runs in Canvas mode; `GardenScene` rebuilds static chrome and rendered plants on resize/restore for Electron stability
 - Ground rendering uses colored rectangles (not sprite tiles)
 - State is distributed: main process (services), React (useState), Phaser (game objects)
 - No centralized store — IPC events flow main→renderer

@@ -19,12 +19,14 @@
 │  │    │  (orchestrator)       │            │                       │ │
 │  │    ├ ClaudeCodeManager     │            │                       │ │
 │  │    │  └ spawn/stop agents  │            │  Phaser Game          │ │
-│  │    ├ ClaudeCodeTracker     │            │    ├ GardenScene      │ │
-│  │    ├ HookServer (HTTP)     │            │    ├ Agent sprites    │ │
-│  │    ├ ProcessScanner        │            │    ├ DayNightCycle    │ │
-│  │    ├ TaskRouter            │            │    ├ ThemeManager     │ │
-│  │    ├ FileWatcher           │            │    └ TimeLapse        │ │
-│  │    └ PersistenceService    │            │                       │ │
+│  │    ├ ClaudeCodeTracker     │            │    ├ GardenGame       │ │
+│  │    ├ HookServer (HTTP)     │            │    │  └ Canvas renderer│ │
+│  │    ├ ProcessScanner        │            │    ├ GardenScene      │ │
+│  │    ├ TaskRouter            │            │    │  └ resize rebuild │ │
+│  │    ├ FileWatcher           │            │    ├ Agent sprites    │ │
+│  │    └ PersistenceService    │            │    ├ DayNightCycle    │ │
+│  │                            │            │    ├ ThemeManager     │ │
+│  │                            │            │    └ TimeLapse        │ │
 │  └────────────┬───────────────┘            └───────────────────────┘ │
 └───────────────┼──────────────────────────────────────────────────────┘
                 │
@@ -99,9 +101,14 @@ No centralized store. State distributed across three layers:
 |-------|-------|-----------|
 | Main Process | Head Gardener state, agent sessions, task queues, stats, config | Class instances, JSON persistence |
 | React | Agent activity, processing flag, history, agent infos | `useState` hooks |
-| Phaser | Agent positions, plants, day/night, theme | Game objects + tweens |
+| Phaser | Canonical plant state, rendered plant layer, agent positions, day/night, theme | Game objects + tweens |
 
 `GardenGame` is the bridge: React calls its methods, which forward to `GardenScene`.
+
+Important renderer detail:
+- `GardenScene.plantPositions` stores the source-of-truth plant state
+- `GardenScene.plantMap` stores disposable rendered containers
+- Window resize / restore rebuilds the ground and plant layer from canonical state so Electron minimize/restore does not leave blank or horizontally squashed plants
 
 ## IPC Events
 

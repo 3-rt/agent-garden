@@ -20,7 +20,7 @@ Plants = files. Garden = codebase. Gardeners = Claude Code sessions. Head Garden
 |-------|------|---------|
 | Desktop shell | Electron | Window, native OS access, IPC |
 | UI | React 19 | Task input, agent management, output panel |
-| Game engine | Phaser 3 | 2D rendering, sprites, tweens, animations |
+| Game engine | Phaser 3 (Canvas renderer) | 2D rendering, sprites, tweens, animations, resize-safe garden redraw |
 | AI agents | Claude Code CLI | Real coding agents (detected or spawned) |
 | Hook integration | HTTP server (port 7890) | Receives Claude Code hook events |
 | Build | Webpack 5 | Multi-target bundling (main + preload + renderer) |
@@ -86,9 +86,9 @@ src/
       TaskInput.tsx            # (legacy) Text input for old API mode
       ApiKeyModal.tsx          # (legacy) API key entry modal
     game/
-      GardenGame.ts            # Phaser game wrapper (React <-> Phaser bridge)
+      GardenGame.ts            # Phaser game wrapper (React <-> Phaser bridge, forces Canvas renderer)
       scenes/
-        GardenScene.ts         # Main scene: colored rect ground/path, zones, agents, plants
+        GardenScene.ts         # Main scene: colored rect ground/path, zones, agents, plants, resize/restore rebuilds
       sprites/
         Agent.ts               # Pixel-art agent: body, hat, legs, arms, backpack, speech bubble
       systems/
@@ -152,6 +152,14 @@ No centralized store. State is distributed:
 
 `GardenGame` class is the facade bridging React→Phaser. All Phaser mutations go through it.
 
+Renderer split worth knowing when debugging visuals:
+- `plantPositions` is the canonical persisted garden state
+- `plantMap` is the disposable rendered plant layer
+- On resize/restore, `GardenScene` rebuilds the ground, title, and plant display objects from canonical state to avoid blank or squashed gardens after window minimize/restore
+
+### Renderer Stability
+`GardenGame` forces `Phaser.CANVAS` instead of `Phaser.AUTO` / WebGL. In Electron on macOS, the Canvas renderer has been more stable across minimize/restore. `GardenScene.layoutScene()` also rebuilds static scene chrome and rendered plants on resize so restored windows do not keep distorted display objects.
+
 ### Garden Output
 Plants grow when Claude Code agents create/modify files in the watched directory. The FileWatcher detects changes and triggers plant growth. Multiple directories can be active if agents target different paths.
 
@@ -179,5 +187,5 @@ Requires [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) insta
 ## Tests
 
 ```bash
-node test-all.js    # 231 tests (all passing)
+npx tsc --outDir test-build --skipLibCheck && node test-all.js    # 293 tests (all passing)
 ```
