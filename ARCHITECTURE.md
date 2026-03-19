@@ -14,11 +14,13 @@
 │  │    ├ auto-save timer       │            │    ├ DirectoryPicker  │ │
 │  │    └ stats tracking        │            │    ├ StatsPanel       │ │
 │  │                            │            │    ├ ThemePicker      │ │
+│  │                            │            │    ├ ActivityLogPanel │ │
 │  │  services/                 │            │    └ Goal input bar   │ │
 │  │    ├ HeadGardener          │            │                       │ │
 │  │    │  (orchestrator)       │            │                       │ │
 │  │    ├ ClaudeCodeManager     │            │                       │ │
 │  │    │  └ spawn/stop agents  │            │  Phaser Game          │ │
+│  │    ├ InitialGardenGenerator│            │    ├ plant-clusters   │ │
 │  │    ├ ClaudeCodeTracker     │            │    ├ GardenGame       │ │
 │  │    ├ HookServer (HTTP)     │            │    │  └ Canvas renderer│ │
 │  │    ├ ProcessScanner        │            │    ├ GardenScene      │ │
@@ -71,6 +73,24 @@ User submits goal → Goal input bar → IPC 'head-gardener:submit-goal'
   → On exit: subtask marked complete/error, agent walks home, sunshine weather
 ```
 
+### Initial Garden Generation
+```
+User opens directory
+  → initial-garden-generator scans repo files
+  → score/filter important paths by zone + directory
+  → shared/garden-bed-layout derives bed count and assigns groups to beds
+  → persisted GardenLayoutState stores both plants and beds
+  → renderer restores the layout and plant-clusters decides which visible plants to merge
+```
+
+### Activity Log
+```
+Hook events / file events / plan updates
+  → renderer/activity-log.ts normalizes entries
+  → ActivityLogPanel renders filterable history
+  → agent/file/plan scopes stay correlated with live garden state
+```
+
 ### Head Gardener Orchestration
 ```
 HeadGardener:
@@ -100,14 +120,16 @@ No centralized store. State distributed across three layers:
 | Layer | State | Mechanism |
 |-------|-------|-----------|
 | Main Process | Head Gardener state, agent sessions, task queues, stats, config | Class instances, JSON persistence |
-| React | Agent activity, processing flag, history, agent infos | `useState` hooks |
-| Phaser | Canonical plant state, rendered plant layer, agent positions, day/night, theme | Game objects + tweens |
+| React | Agent activity, plans, activity log filters/history, agent infos | `useState` hooks |
+| Phaser | Canonical plant state, canonical bed state, rendered plant layer, agent positions, day/night, theme | Game objects + tweens |
 
 `GardenGame` is the bridge: React calls its methods, which forward to `GardenScene`.
 
 Important renderer detail:
 - `GardenScene.plantPositions` stores the source-of-truth plant state
+- `GardenScene.gardenBeds` stores persisted bed layout state
 - `GardenScene.plantMap` stores disposable rendered containers
+- `plant-clusters.ts` derives the visible plant layer from raw per-file state, including bed-aware merged plants
 - Window resize / restore rebuilds the ground and plant layer from canonical state so Electron minimize/restore does not leave blank or horizontally squashed plants
 
 ## IPC Events
@@ -126,7 +148,7 @@ Important renderer detail:
 | Renderer → Main | `directory:add` | (opens dialog, returns `string \| null`) |
 | Renderer → Main | `directory:remove` | `dir: string` |
 | Renderer → Main | `directory:list` | (returns `{ primary, additional[] }`) |
-| Renderer → Main | `garden:save` | `plants, theme` |
+| Renderer → Main | `garden:save` | `GardenLayoutState, theme` |
 | Renderer → Main | `garden:set-theme` | `themeId` |
 | Main → Renderer | `cc-agent:connected` | `CCAgentSession` |
 | Main → Renderer | `cc-agent:activity` | `{ agentId, event, tool?, file?, prompt? }` |

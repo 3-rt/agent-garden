@@ -1,6 +1,6 @@
 # Agent Garden — Implementation Plan
 
-Phases 1–4 built the visual garden foundation. Phase 5 transforms the app from an API wrapper into a full Claude Code orchestrator (the Head Gardener). Phase 5 is the current focus.
+Phases 1–5 are complete on `main`, and the current baseline also includes post-Phase-5 renderer polish, activity logging, initial garden generation, and garden bed layout. This file now serves as a reference roadmap for what shipped.
 
 ## Phase 1: MVP Loop ✅
 - FileWatcher wired into main process with 200ms debounce
@@ -106,3 +106,11 @@ Replace the built-in API agents with real Claude Code CLI sessions. The app beco
 - Connection status indicator (green = receiving hooks, yellow = waiting, gray = not configured)
 - SetupBanner warns when hooks aren't configured, with dismiss and configure options
 - HookSetupModal: 3-step wizard (view config → auto-configure/manual → verify)
+
+## Post-Phase 5 Shipped Work ✅
+
+- **AG-9: Merged plant grouping** — prioritize high-signal directories in dense gardens while keeping singleton files legible
+- **AG-10: Initial garden generation** — scan an existing repo and seed the garden before live file events start
+- **AG-13: Activity log** — track lifecycle, tool, file, and plan events in a filterable renderer panel
+- **Garden beds** — persist explicit beds per zone, place plants into walkable plots, and keep live insertions bed-aware
+- **AG-14: Renderer stability** — use Canvas mode plus resize/restore rebuilds and bed-aware anchoring for stable Electron visuals

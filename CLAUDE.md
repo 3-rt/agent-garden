@@ -16,14 +16,15 @@ npm run dev            # Webpack watch mode (then: npx electron . separately)
 npx tsc --outDir test-build --skipLibCheck && node test-all.js
 ```
 
-All tests are in `test-all.js` (single file, no framework). Currently 293 tests.
+All tests are in `test-all.js` (single file, no framework). Currently 334 tests.
 
 ## Architecture
 
 Two-process Electron model:
-- **Main process** (`src/main/`): IPC handlers, services (hook-server, tracker, process-scanner, claude-code-manager, head-gardener, persistence, watcher)
-- **Renderer process** (`src/renderer/`): React UI (App.tsx + components) + Phaser 3 game (GardenScene)
+- **Main process** (`src/main/`): IPC handlers, services (hook-server, tracker, process-scanner, initial-garden-generator, claude-code-manager, head-gardener, persistence, watcher)
+- **Renderer process** (`src/renderer/`): React UI (App.tsx, ActivityLogPanel, activity-log helpers) + Phaser 3 game (GardenScene, plant-clusters)
 - **Shared types** (`src/shared/types.ts`): All interfaces shared between processes
+- **Shared layout** (`src/shared/garden-bed-layout.ts`): zone bed counts, ranking, assignment, and scatter placement
 - **Bridge**: `preload.ts` exposes typed `window.electronAPI`, `GardenGame.ts` bridges React to Phaser
 
 ## Key Conventions
@@ -32,10 +33,11 @@ Two-process Electron model:
 - No test framework — plain `assert()` in `test-all.js`
 - Phaser 3 requires `'unsafe-eval'` in CSP (`index.html`)
 - Phaser runs in Canvas mode; `GardenScene` rebuilds static chrome and rendered plants on resize/restore for Electron stability
+- Garden layout persists both per-file plant state and per-zone bed state
 - Ground rendering uses colored rectangles (not sprite tiles)
 - State is distributed: main process (services), React (useState), Phaser (game objects)
 - No centralized store — IPC events flow main→renderer
-- Persistence: auto-save every 30s + on quit (plants, stats, theme)
+- Persistence: auto-save every 30s + on quit (plants, beds, stats, theme)
 
 ## Code Style
 

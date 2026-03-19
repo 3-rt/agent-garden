@@ -19,7 +19,7 @@ Plants = files. Garden = codebase. Gardeners = Claude Code sessions. Head Garden
 | Layer | Tech | Purpose |
 |-------|------|---------|
 | Desktop shell | Electron | Window, native OS access, IPC |
-| UI | React 19 | Task input, agent management, output panel |
+| UI | React 19 | Task input, agent management, plans, activity log |
 | Game engine | Phaser 3 (Canvas renderer) | 2D rendering, sprites, tweens, animations, resize-safe garden redraw |
 | AI agents | Claude Code CLI | Real coding agents (detected or spawned) |
 | Hook integration | HTTP server (port 7890) | Receives Claude Code hook events |
@@ -75,8 +75,10 @@ src/
     index.html                 # HTML shell with CSP (includes 'unsafe-eval' for Phaser)
     index.tsx                  # React DOM entry
     App.tsx                    # Root component — CC agent events, goal input, game bridge
+    activity-log.ts            # Activity log entry creation/filter helpers
     assets/sprites/            # Pixel art spritesheets (Overworld, character, objects, etc.)
     components/
+      ActivityLogPanel.tsx     # Filterable lifecycle/tool/file/plan event history
       DirectoryPicker.tsx      # Shows/changes watched directory
       StatsPanel.tsx           # Bottom bar: plants, tasks, agents, hook status
       ThemePicker.tsx          # Theme dropdown (5 themes)
@@ -87,8 +89,9 @@ src/
       ApiKeyModal.tsx          # (legacy) API key entry modal
     game/
       GardenGame.ts            # Phaser game wrapper (React <-> Phaser bridge, forces Canvas renderer)
+      plant-clusters.ts        # Visible plant grouping + prioritization for dense gardens
       scenes/
-        GardenScene.ts         # Main scene: colored rect ground/path, zones, agents, plants, resize/restore rebuilds
+        GardenScene.ts         # Main scene: beds, zones, agents, plants, resize/restore rebuilds
       sprites/
         Agent.ts               # Pixel-art agent: body, hat, legs, arms, backpack, speech bubble
       systems/
@@ -96,7 +99,8 @@ src/
         ThemeManager.ts        # 5 themes with listener pattern for live switching
         TimeLapse.ts           # Snapshots every 10s, max 200, export/import JSON
   shared/
-    types.ts                   # All shared interfaces (includes CC agent + orchestration types)
+    garden-bed-layout.ts       # Shared bed count, ranking, assignment, and scatter logic
+    types.ts                   # All shared interfaces (includes beds, activity log, CC agent, orchestration)
 ```
 
 ## Implementation Status
@@ -125,6 +129,13 @@ Built the visual garden, sprite system, animations, and rendering pipeline:
 - **5g: Garden Integration** ✅ — File-agent correlation, plant role attribution, stats wiring, weather triggers
 - **5h: Setup UX** ✅ — SetupBanner, HookSetupModal wizard, auto-configure hooks, connection status indicator
 
+### Post-Phase 5 Garden Polish ✅
+- **AG-9: Grouped plant layout** — dense gardens collapse into prioritized visible plants while preserving singleton detail and bed-aware clustering
+- **AG-10: Initial garden generation** — the app scans the selected repo, filters low-signal files, and seeds the garden before live work begins
+- **AG-13: Activity log** — lifecycle, tool, file, and plan events are formatted into a filterable side panel in the renderer
+- **Garden bed layout** — sections now persist explicit bed geometry and place files into walkable plots that can absorb later growth
+- **AG-14: Renderer stability** — resize/restore rebuilds, bed-aware plant anchoring, and Canvas rendering keep Electron visuals stable
+
 ## Key Technical Details
 
 ### CSP Requirement
@@ -147,23 +158,30 @@ The app runs an HTTP server on port 7890. Claude Code hooks are configured in `~
 ### State Management
 No centralized store. State is distributed:
 - **Main process**: Head Gardener state, Claude Code sessions, task queues, stats, persisted config
-- **React**: Agent activity, processing state, history, agent infos (via useState)
-- **Phaser**: Agent positions, plants, day/night state, theme (game objects + tweens)
+- **React**: Agent activity, plans, activity log filters/history, agent infos (via useState)
+- **Phaser**: Agent positions, plants, beds, day/night state, theme (game objects + tweens)
 
 `GardenGame` class is the facade bridging React→Phaser. All Phaser mutations go through it.
 
 Renderer split worth knowing when debugging visuals:
 - `plantPositions` is the canonical persisted garden state
+- `gardenBeds` is the canonical persisted bed layout per zone
 - `plantMap` is the disposable rendered plant layer
+- `plant-clusters.ts` derives the visible plant layer from dense raw state, including merged labels and bed-aware grouping
 - On resize/restore, `GardenScene` rebuilds the ground, title, and plant display objects from canonical state to avoid blank or squashed gardens after window minimize/restore
 
 ### Renderer Stability
 `GardenGame` forces `Phaser.CANVAS` instead of `Phaser.AUTO` / WebGL. In Electron on macOS, the Canvas renderer has been more stable across minimize/restore. `GardenScene.layoutScene()` also rebuilds static scene chrome and rendered plants on resize so restored windows do not keep distorted display objects.
 
+### Garden Beds
+The initial garden layout is no longer a loose scatter. `initial-garden-generator.ts` scans the repo, scores files/directories, and uses `shared/garden-bed-layout.ts` to derive per-zone bed counts and assign directory groups to center-most beds first. Plants keep per-file state, but the saved garden layout now also persists `beds` so restores and live insertions reuse the same structure.
+
 ### Garden Output
-Plants grow when Claude Code agents create/modify files in the watched directory. The FileWatcher detects changes and triggers plant growth. Multiple directories can be active if agents target different paths.
+Plants grow when Claude Code agents create/modify files in the watched directory. The FileWatcher detects changes and triggers plant growth. Multiple directories can be active if agents target different paths. New files try to join an existing matching bed before opening pressure for an outer overflow bed.
 
 File-agent correlation: When a Claude Code agent writes a file (detected via PostToolUse hook), the app records the agent ID and role in a 2-second TTL buffer. When the FileWatcher detects the new file, it enriches the event with the correlated agent info. Plants display a role-colored dot showing which agent created them.
+
+The renderer also maintains an activity log in parallel with the garden. Hook events, plan updates, and file events are normalized in `renderer/activity-log.ts` and rendered via `ActivityLogPanel.tsx`.
 
 ### Hook Connection Status
 The app tracks hook event timestamps to determine connection status:
@@ -187,5 +205,5 @@ Requires [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) insta
 ## Tests
 
 ```bash
-npx tsc --outDir test-build --skipLibCheck && node test-all.js    # 293 tests (all passing)
+npx tsc --outDir test-build --skipLibCheck && node test-all.js    # 334 tests (all passing)
 ```

@@ -13,8 +13,9 @@ A visual desktop orchestrator for Claude Code agents. Pixel-art gardeners repres
 2. The Head Gardener (orchestrator) detects running Claude Code sessions or spawns new ones
 3. Each Claude Code agent appears as a pixel-art gardener with a designated role (planter, weeder, tester)
 4. As agents work, you see their activity in real-time — speech bubbles, tool use, file edits
-5. Plants grow as files are created/modified — the garden is a live visualization of your codebase
-6. Submit high-level goals and the Head Gardener delegates subtasks to available agents
+5. The app can seed the garden from the existing repo, then keep growing it as files are created/modified
+6. Plants are grouped into directory-aware garden beds with visible walkways and bed-stable clustering
+7. An activity log records agent lifecycle, tool, plan, and file events alongside the live garden
 
 **Plants = files. Garden = codebase. Gardeners = Claude Code sessions. Head Gardener = orchestrator.**
 
@@ -37,12 +38,12 @@ npm run dev        # Watch mode (then: npx electron . in another terminal)
 
 The app auto-detects running Claude Code sessions via hooks and process scanning. To enable hook integration, configure your `~/.claude/settings.json` to POST events to `http://localhost:7890/hooks/<EventType>`.
 
-The garden renderer uses Phaser's Canvas backend plus resize-time scene rebuilds so minimize/restore stays stable in Electron.
+The garden renderer uses Phaser's Canvas backend plus resize-time scene rebuilds so minimize/restore stays stable in Electron. Initial garden generation, persisted bed layouts, and the activity log all restore on startup.
 
 ## Testing
 
 ```bash
-npx tsc --outDir test-build --skipLibCheck && node test-all.js  # 293 tests
+npx tsc --outDir test-build --skipLibCheck && node test-all.js  # 334 tests
 ```
 
 ## Docs
