@@ -220,10 +220,36 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
 
   // Save state
   const testPlants = [
-    { filename: 'App.tsx', x: 100, y: 200, zone: 'frontend', createdAt: Date.now() },
-    { filename: 'server.ts', x: 300, y: 200, zone: 'backend', createdAt: Date.now() },
+    { filename: 'App.tsx', x: 100, y: 200, zone: 'frontend', createdAt: Date.now(), bedId: 'bed-frontend-center' },
+    { filename: 'server.ts', x: 300, y: 200, zone: 'backend', createdAt: Date.now(), bedId: 'bed-backend-center' },
   ];
-  persist.saveState(testPlants, 'zen');
+  const testBeds = [
+    {
+      id: 'bed-frontend-center',
+      zone: 'frontend',
+      x: 120,
+      y: 180,
+      width: 140,
+      height: 100,
+      rank: 0,
+      capacity: 4,
+      directoryGroups: ['src/renderer/components'],
+      plantKeys: ['App.tsx'],
+    },
+    {
+      id: 'bed-backend-center',
+      zone: 'backend',
+      x: 320,
+      y: 180,
+      width: 140,
+      height: 100,
+      rank: 0,
+      capacity: 4,
+      directoryGroups: ['src/main/services'],
+      plantKeys: ['server.ts'],
+    },
+  ];
+  persist.saveState(testPlants, 'zen', testBeds);
 
   // Load state
   const loaded = persist.loadState();
@@ -231,6 +257,10 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(loaded.plants.length === 2, 'Loaded plants count matches');
   assert(loaded.plants[0].filename === 'App.tsx', 'Loaded plant filename matches');
   assert(loaded.plants[1].zone === 'backend', 'Loaded plant zone matches');
+  assert(loaded.plants[0].bedId === 'bed-frontend-center', 'Loaded plant bedId matches');
+  assert(Array.isArray(loaded.beds), 'Loaded garden state includes beds collection');
+  assert(loaded.beds.length === 2, 'Loaded beds count matches');
+  assert(loaded.beds[0].id === 'bed-frontend-center', 'Loaded bed id matches');
   assert(loaded.theme === 'zen', 'Loaded theme matches');
   assert(loaded.stats.filesCreated === 2, 'Loaded stats preserved');
   assert(loaded.savedAt > 0, 'savedAt timestamp set');
@@ -240,14 +270,32 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   const loaded2 = persist2.loadState();
   assert(loaded2 !== null, 'Fresh instance can load saved state');
   assert(loaded2.plants.length === 2, 'Fresh instance loads correct plant count');
+  assert(Array.isArray(loaded2.beds), 'Fresh instance loads bed collection');
+  assert(loaded2.beds.length === 2, 'Fresh instance loads correct bed count');
 
   // No state returns null
   const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-empty-'));
   const persist3 = new PersistenceService(emptyDir);
   assert(persist3.loadState() === null, 'loadState returns null when no saved state');
 
+  const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ag-legacy-'));
+  const legacyStateDir = path.join(legacyDir, 'agent-garden');
+  fs.mkdirSync(legacyStateDir, { recursive: true });
+  fs.writeFileSync(path.join(legacyStateDir, 'garden-state.json'), JSON.stringify({
+    plants: [{ filename: 'legacy.ts', x: 10, y: 20, zone: 'backend', createdAt: 1000 }],
+    stats: { filesCreated: 1, tasksCompleted: 0, tasksFailed: 0, activeAgents: 0, sessionStart: 1000 },
+    theme: 'garden',
+    savedAt: 2000,
+  }, null, 2));
+  const persistLegacy = new PersistenceService(legacyDir);
+  const loadedLegacy = persistLegacy.loadState();
+  assert(loadedLegacy !== null, 'Legacy state still loads');
+  assert(Array.isArray(loadedLegacy.beds), 'Legacy state defaults beds to an array');
+  assert(loadedLegacy.beds.length === 0, 'Legacy state defaults beds to empty');
+
   fs.rmSync(persistDir, { recursive: true });
   fs.rmSync(emptyDir, { recursive: true });
+  fs.rmSync(legacyDir, { recursive: true });
 
   // ============================================================
   // Phase 4: TimeLapse

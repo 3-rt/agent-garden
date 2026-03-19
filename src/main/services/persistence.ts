@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
-import type { GardenState, GardenStats, PlantState } from '../../shared/types';
+import type { GardenBedState, GardenState, GardenStats, PlantState } from '../../shared/types';
 
 export class PersistenceService {
   private statePath: string;
@@ -27,15 +27,19 @@ export class PersistenceService {
           const { tokensUsed, ...rest } = data.stats;
           this.stats = { ...this.stats, ...rest, activeAgents: rest.activeAgents ?? 0 };
         }
-        return data;
+        return {
+          ...data,
+          beds: Array.isArray(data.beds) ? data.beds : [],
+        };
       }
     } catch {}
     return null;
   }
 
-  saveState(plants: PlantState[], theme: string) {
+  saveState(plants: PlantState[], theme: string, beds: GardenBedState[] = []) {
     const state: GardenState = {
       plants,
+      beds,
       stats: this.stats,
       theme,
       savedAt: Date.now(),

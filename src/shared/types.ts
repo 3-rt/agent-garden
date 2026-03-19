@@ -118,13 +118,28 @@ export interface PlantState {
   y: number;
   zone: string;
   createdAt: number;
+  bedId?: string;
   directory?: string;
   creatorRole?: AgentRole;
   growthScale?: number;
 }
 
+export interface GardenBedState {
+  id: string;
+  zone: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rank: number;
+  capacity: number;
+  directoryGroups: string[];
+  plantKeys: string[];
+}
+
 export interface GardenState {
   plants: PlantState[];
+  beds: GardenBedState[];
   stats: GardenStats;
   theme: string;
   savedAt: number;
