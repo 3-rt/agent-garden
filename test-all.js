@@ -671,6 +671,31 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(sceneLayout.beds.length === 1, 'GardenScene restores persisted bed layout');
   assert(sceneLayout.beds[0].id === 'bed-backend-center', 'GardenScene keeps restored bed ids');
   assert(sceneLayout.plants[0].bedId === 'bed-backend-center', 'GardenScene preserves plant bed membership through restore');
+  assert(resizeScene.bedMap.size === 1, 'GardenScene renders a background for each restored bed');
+
+  resizeScene.onFileCreated('src/main/services/new.ts');
+  const matchedLayout = resizeScene.getGardenLayout();
+  const matchedPlant = matchedLayout.plants.find((plant) => plant.filename === 'src/main/services/new.ts');
+  assert(matchedPlant.bedId === 'bed-backend-center', 'New file joins the matching existing bed');
+  assert(
+    matchedLayout.beds.find((bed) => bed.id === 'bed-backend-center').plantKeys.includes('src/main/services/new.ts'),
+    'Matching bed tracks the newly inserted file',
+  );
+
+  resizeScene.restoreGardenLayout({
+    beds: [{
+      ...restoredBedLayout.beds[0],
+      capacity: 1,
+      plantKeys: ['server.ts'],
+    }],
+    plants: restoredBedLayout.plants,
+  });
+  resizeScene.onFileCreated('src/main/services/overflow.ts');
+  const overflowSceneLayout = resizeScene.getGardenLayout();
+  const overflowPlant = overflowSceneLayout.plants.find((plant) => plant.filename === 'src/main/services/overflow.ts');
+  assert(overflowSceneLayout.beds.length === 2, 'GardenScene adds a new outer bed when the matching bed is full');
+  assert(overflowPlant.bedId !== 'bed-backend-center', 'Overflow file moves into the new outer bed');
+  assert(resizeScene.bedMap.size === 2, 'GardenScene renders backgrounds for expanded beds');
 
   // ============================================================
   // AG-14: Garden Renderer Stability

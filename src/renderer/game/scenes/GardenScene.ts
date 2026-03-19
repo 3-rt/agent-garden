@@ -3,6 +3,7 @@ import { Agent } from '../sprites/Agent';
 import { TimeLapse, GardenSnapshot } from '../systems/TimeLapse';
 import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
 import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
+import { buildZoneBeds, scatterPlantsInBed } from '../../../shared/garden-bed-layout';
 import type { AgentRole, GardenBedState, GardenLayoutState, PlantState } from '../../../shared/types';
 
 interface ZoneConfig {
@@ -27,6 +28,7 @@ export class GardenScene extends Phaser.Scene {
   private activeDirectories = new Set<string>();
   private directoryLabels = new Map<string, Phaser.GameObjects.Text>();
   private gardenBeds: GardenBedState[] = [];
+  private bedMap = new Map<string, Phaser.GameObjects.Rectangle>();
 
   // Phase 4 systems
   private timeLapse = new TimeLapse();
@@ -242,6 +244,11 @@ export class GardenScene extends Phaser.Scene {
     }
 
     const zone = this.fileToZone(filename);
+    if (this.gardenBeds.some((bed) => bed.zone === zone)) {
+      this.placePlantInExistingBeds(filename, key, zone, directory, creatorRole, growthScale);
+      return;
+    }
+
     const { width, height } = this.scale;
     const layout = ZONE_LAYOUT[zone];
     const zoneStart = layout.x * width;
@@ -332,6 +339,10 @@ export class GardenScene extends Phaser.Scene {
   }
 
   clearPlants() {
+    for (const bed of this.bedMap.values()) {
+      bed.destroy();
+    }
+    this.bedMap.clear();
     for (const plant of this.plantMap.values()) {
       plant.destroy();
     }
@@ -353,7 +364,14 @@ export class GardenScene extends Phaser.Scene {
   onFileDeleted(filename: string, directory?: string) {
     const key = this.getPlantKey(filename, directory);
     if (!this.plantPositions.has(key)) return;
+    const deletedPlant = this.plantPositions.get(key);
     this.plantPositions.delete(key);
+    if (deletedPlant?.bedId) {
+      const bed = this.gardenBeds.find((candidate) => candidate.id === deletedPlant.bedId);
+      if (bed) {
+        bed.plantKeys = bed.plantKeys.filter((plantKey) => plantKey !== filename);
+      }
+    }
     this.rebuildPlantDisplay();
   }
 
@@ -476,6 +494,7 @@ export class GardenScene extends Phaser.Scene {
       directoryGroups: [...bed.directoryGroups],
       plantKeys: [...bed.plantKeys],
     }));
+    this.renderBedVisuals();
     this.restorePlants(layout.plants || []);
   }
 
@@ -581,6 +600,7 @@ export class GardenScene extends Phaser.Scene {
     this.rebuildGround(width, height);
     this.titleText.setPosition(width / 2, height - 12);
     this.cameras.main.setBackgroundColor(this.themeManager.current.backgroundColor);
+    this.renderBedVisuals();
 
     // Rebuild plants from source state after resize/restore so any distorted
     // display-object transforms from the renderer lifecycle are discarded.
@@ -613,6 +633,26 @@ export class GardenScene extends Phaser.Scene {
         ).setDepth(0);
         this.groundTiles.push(tile);
       }
+    }
+  }
+
+  private renderBedVisuals() {
+    for (const bed of this.bedMap.values()) {
+      bed.destroy();
+    }
+    this.bedMap.clear();
+
+    for (const bed of this.gardenBeds) {
+      const bedVisual = this.add.rectangle(
+        bed.x,
+        bed.y,
+        bed.width,
+        bed.height,
+        this.themeManager.current.groundDark,
+      )
+        .setDepth(1)
+        .setAlpha(0.35);
+      this.bedMap.set(bed.id, bedVisual);
     }
   }
 
@@ -706,6 +746,152 @@ export class GardenScene extends Phaser.Scene {
     const golden = 0.618033988749895;
     const normalized = ((slot * golden) % 1);
     return zoneStart + normalized * zoneWidth;
+  }
+
+  private getDirectoryGroup(filename: string): string {
+    const parts = filename.split('/').filter(Boolean);
+    if (parts.length <= 1) return 'root';
+    return parts.slice(0, -1).join('/');
+  }
+
+  private getZoneBeds(zone: string): GardenBedState[] {
+    return this.gardenBeds
+      .filter((bed) => bed.zone === zone)
+      .sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id));
+  }
+
+  private getBedOccupancy(bedId: string): number {
+    let count = 0;
+    for (const pos of this.plantPositions.values()) {
+      if (pos.bedId === bedId) count++;
+    }
+    return count;
+  }
+
+  private addOverflowBed(zone: string): GardenBedState {
+    const zoneBeds = this.getZoneBeds(zone);
+    const { width, height } = this.scale;
+    const layout = ZONE_LAYOUT[zone];
+    const zoneStart = layout.x * width;
+    const zoneWidth = layout.width * width;
+    const seedBed = zoneBeds[zoneBeds.length - 1] || buildZoneBeds({
+      zone: zone as 'frontend' | 'backend' | 'tests',
+      fileCount: 1,
+      zoneStart,
+      zoneWidth,
+      centerY: height / 2,
+    })[0];
+    const maxRank = zoneBeds.reduce((current, bed) => Math.max(current, bed.rank), -1);
+    const zoneEnd = zoneStart + zoneWidth;
+    let nextX = seedBed.x + seedBed.width + 24;
+    let nextY = seedBed.y;
+
+    if (nextX > zoneEnd - seedBed.width / 2) {
+      nextX = zoneEnd - seedBed.width / 2;
+      nextY = seedBed.y + seedBed.height + 26;
+    }
+
+    const overflowBed: GardenBedState = {
+      ...seedBed,
+      id: `${zone}-bed-${maxRank + 1}`,
+      x: Math.round(nextX),
+      y: Math.round(nextY),
+      rank: maxRank + 1,
+      directoryGroups: [],
+      plantKeys: [],
+    };
+    this.gardenBeds.push(overflowBed);
+    this.renderBedVisuals();
+    return overflowBed;
+  }
+
+  private selectBedForNewPlant(zone: string, directoryGroup: string): GardenBedState {
+    const zoneBeds = this.getZoneBeds(zone);
+    const matchingBed = zoneBeds.find((bed) =>
+      bed.directoryGroups.includes(directoryGroup) && this.getBedOccupancy(bed.id) < bed.capacity,
+    );
+    if (matchingBed) return matchingBed;
+
+    const emptyBed = zoneBeds.find((bed) =>
+      bed.directoryGroups.length === 0 && this.getBedOccupancy(bed.id) < bed.capacity,
+    );
+    if (emptyBed) return emptyBed;
+
+    const availableBed = zoneBeds.find((bed) => this.getBedOccupancy(bed.id) < bed.capacity);
+    if (availableBed) return availableBed;
+
+    return this.addOverflowBed(zone);
+  }
+
+  private placePlantInExistingBeds(
+    filename: string,
+    key: string,
+    zone: string,
+    directory?: string,
+    creatorRole?: AgentRole,
+    growthScale?: number,
+  ) {
+    const createdAt = Date.now();
+    const directoryGroup = this.getDirectoryGroup(filename);
+    const targetBed = this.selectBedForNewPlant(zone, directoryGroup);
+    const existingEntries = Array.from(this.plantPositions.entries())
+      .filter(([, pos]) => pos.bedId === targetBed.id)
+      .map(([existingKey, pos]) => ({
+        key: existingKey,
+        filename: this.parsePlantKey(existingKey).filename,
+        pos,
+      }));
+
+    const positionedPlants = scatterPlantsInBed({
+      bed: targetBed,
+      files: [
+        ...existingEntries.map((entry) => ({
+          filename: entry.filename,
+          zone: entry.pos.zone,
+          growthScale: entry.pos.growthScale,
+        })),
+        {
+          filename,
+          zone,
+          growthScale,
+        },
+      ],
+      createdAt,
+    });
+    const positionedByFilename = new Map(positionedPlants.map((plant) => [plant.filename, plant]));
+
+    for (const entry of existingEntries) {
+      const nextPosition = positionedByFilename.get(entry.filename);
+      if (!nextPosition) continue;
+      this.plantPositions.set(entry.key, {
+        ...entry.pos,
+        x: nextPosition.x,
+        y: nextPosition.y,
+        bedId: targetBed.id,
+      });
+    }
+
+    const newPlant = positionedByFilename.get(filename);
+    if (!newPlant) return;
+
+    if (!targetBed.directoryGroups.includes(directoryGroup)) {
+      targetBed.directoryGroups.push(directoryGroup);
+    }
+    if (!targetBed.plantKeys.includes(filename)) {
+      targetBed.plantKeys.push(filename);
+    }
+
+    this.plantPositions.set(key, {
+      x: newPlant.x,
+      y: newPlant.y,
+      zone,
+      createdAt,
+      bedId: targetBed.id,
+      directory,
+      creatorRole,
+      growthScale,
+    });
+    this.rebuildPlantDisplay(new Set([key]));
   }
 
   private growPlant(x: number, y: number, filename: string, creatorRole?: AgentRole, growthScale?: number, animate = true): Phaser.GameObjects.Container {
