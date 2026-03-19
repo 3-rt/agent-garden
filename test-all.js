@@ -421,6 +421,101 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(r5.filename === 'output.ts', 'Generic prompt -> output.ts');
 
   // ============================================================
+  // AG-13: Activity Log
+  // ============================================================
+  section('AG-13: Activity Log');
+
+  const {
+    appendActivityLogEntry,
+    createAgentActivityLogEntry,
+    createAgentLifecycleLogEntry,
+    createFileEventLogEntry,
+    createPlanLogEntry,
+    filterActivityLogEntries,
+  } = require('./test-build/renderer/activity-log');
+
+  const connectedEntry = createAgentLifecycleLogEntry('agent-connected', {
+    agentId: 'cc-session-1',
+    sessionId: 'session-1',
+    role: 'planter',
+    directory: '/tmp/project-a',
+    source: 'hooks',
+  }, 1000);
+  assert(connectedEntry.kind === 'agent-connected', 'Lifecycle entry stores kind');
+  assert(connectedEntry.agentId === 'cc-session-1', 'Lifecycle entry stores agentId');
+  assert(connectedEntry.message.includes('project-a'), 'Lifecycle entry includes directory label');
+
+  const toolEntry = createAgentActivityLogEntry({
+    agentId: 'cc-session-1',
+    event: 'PreToolUse',
+    tool: 'Edit',
+    file: 'src/App.tsx',
+  }, 1100);
+  assert(toolEntry.kind === 'agent-activity', 'Tool entry uses agent-activity kind');
+  assert(toolEntry.tool === 'Edit', 'Tool entry stores tool');
+  assert(toolEntry.file === 'src/App.tsx', 'Tool entry stores file');
+  assert(toolEntry.message.includes('Edit'), 'Tool entry message includes tool');
+
+  const outputEntry = createAgentActivityLogEntry({
+    agentId: 'cc-session-1',
+    event: 'PostToolUse',
+    tool: 'output',
+  }, 1200, 'Finished generating component');
+  assert(outputEntry.message.includes('Finished generating component'), 'Output entry message uses supplied detail');
+
+  const fileEntry = createFileEventLogEntry({
+    type: 'created',
+    path: 'src/Button.tsx',
+    directory: '/tmp/project-a',
+    agentId: 'cc-session-1',
+    creatorRole: 'planter',
+  }, 1300);
+  assert(fileEntry.kind === 'file-event', 'File event uses file-event kind');
+  assert(fileEntry.message.includes('created'), 'File event message includes action');
+  assert(fileEntry.agentId === 'cc-session-1', 'File event keeps correlated agent');
+
+  const planEntry = createPlanLogEntry('subtask-updated', {
+    planId: 'plan-1',
+    subtask: {
+      id: 'sub-1',
+      prompt: 'write tests',
+      role: 'tester',
+      status: 'assigned',
+      agentId: 'cc-session-2',
+      sessionId: 'session-2',
+    },
+  }, 1400);
+  assert(planEntry.kind === 'subtask-updated', 'Plan entry stores subtask kind');
+  assert(planEntry.agentId === 'cc-session-2', 'Plan entry keeps assigned agent');
+  assert(planEntry.message.includes('write tests'), 'Plan entry includes prompt text');
+
+  let logEntries = [];
+  for (let i = 0; i < 405; i++) {
+    logEntries = appendActivityLogEntry(logEntries, {
+      id: `entry-${i}`,
+      timestamp: i,
+      scope: 'project',
+      kind: 'agent-output',
+      message: `entry ${i}`,
+    }, 400);
+  }
+  assert(logEntries.length === 400, 'Activity log history is capped');
+  assert(logEntries[0].id === 'entry-404', 'Newest entry stays first after trimming');
+  assert(logEntries[399].id === 'entry-5', 'Oldest retained entry is correct after trimming');
+
+  const filteredEntries = filterActivityLogEntries([
+    connectedEntry,
+    toolEntry,
+    fileEntry,
+    planEntry,
+  ], {
+    selectedAgentId: 'cc-session-1',
+    searchText: 'app',
+  });
+  assert(filteredEntries.length === 1, 'Filtering combines agent selection and search text');
+  assert(filteredEntries[0].file === 'src/App.tsx', 'Filtering returns matching activity entry');
+
+  // ============================================================
   // Phase 5f: Directory Management
   // ============================================================
   section('Phase 5f: FileWatcher Multi-Directory');

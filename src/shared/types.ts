@@ -128,6 +128,34 @@ export interface GardenState {
   savedAt: number;
 }
 
+export type ActivityLogScope = 'project' | 'agent';
+export type ActivityLogKind =
+  | 'agent-connected'
+  | 'agent-disconnected'
+  | 'agent-activity'
+  | 'agent-output'
+  | 'agent-exited'
+  | 'file-event'
+  | 'plan-created'
+  | 'subtask-updated'
+  | 'plan-completed';
+
+export interface ActivityLogEntry {
+  id: string;
+  timestamp: number;
+  scope: ActivityLogScope;
+  kind: ActivityLogKind;
+  message: string;
+  agentId?: string;
+  sessionId?: string;
+  role?: AgentRole;
+  tool?: string;
+  file?: string;
+  planId?: string;
+  subtaskId?: string;
+  status?: string;
+}
+
 export type HookConnectionStatus = 'connected' | 'waiting' | 'not-configured';
 
 export interface HookStatusInfo {
