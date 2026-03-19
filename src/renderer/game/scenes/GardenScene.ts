@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { Agent } from '../sprites/Agent';
 import { TimeLapse, GardenSnapshot } from '../systems/TimeLapse';
 import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
+import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
 import type { AgentRole, PlantState } from '../../../shared/types';
 
 interface ZoneConfig {
@@ -19,7 +20,8 @@ const ZONE_LAYOUT: Record<string, { x: number; width: number }> = {
 export class GardenScene extends Phaser.Scene {
   private agents = new Map<string, Agent>();
   private plantMap = new Map<string, Phaser.GameObjects.Container>();
-  private plantPositions = new Map<string, { x: number; y: number; zone: string; directory?: string; creatorRole?: AgentRole; growthScale?: number }>();
+  private plantPositions = new Map<string, { x: number; y: number; zone: string; createdAt: number; directory?: string; creatorRole?: AgentRole; growthScale?: number }>();
+  private plantDisplayIndex = new Map<string, string>();
   private zonePlantSlots = new Map<string, number>();
   private accumulatedText = new Map<string, string>();
   private activeDirectories = new Set<string>();
@@ -33,6 +35,8 @@ export class GardenScene extends Phaser.Scene {
 
   private snapshotInterval = 10_000; // snapshot every 10s
   private lastSnapshotTime = 0;
+  private readonly mergeThreshold = 24;
+  private readonly mergeGroupSize = 3;
 
   constructor() {
     super({ key: 'GardenScene' });
@@ -238,10 +242,8 @@ export class GardenScene extends Phaser.Scene {
   }
 
   onFileCreated(filename: string, directory?: string, creatorRole?: AgentRole, growthScale?: number) {
-    // Use directory:filename as key when multiple directories are active
-    const key = directory && this.activeDirectories.size > 1
-      ? `${directory}:${filename}` : filename;
-    if (this.plantMap.has(key)) return;
+    const key = this.getPlantKey(filename, directory);
+    if (this.plantPositions.has(key)) return;
 
     // Track directory and show label if new
     if (directory) {
@@ -279,10 +281,16 @@ export class GardenScene extends Phaser.Scene {
         : height / 2 + 60 + Math.random() * 40;
     }
 
-    const plant = this.growPlant(x, y, filename, creatorRole, growthScale);
-    this.plantMap.set(key, plant);
-    this.plantPositions.set(key, { x, y, zone, directory, creatorRole, growthScale });
-    this.emitParticles(x, y);
+    this.plantPositions.set(key, {
+      x,
+      y,
+      zone,
+      createdAt: Date.now(),
+      directory,
+      creatorRole,
+      growthScale,
+    });
+    this.rebuildPlantDisplay(new Set([key]));
   }
 
   private trackDirectory(directory: string) {
@@ -337,6 +345,7 @@ export class GardenScene extends Phaser.Scene {
     }
     this.plantMap.clear();
     this.plantPositions.clear();
+    this.plantDisplayIndex.clear();
     for (const key of Object.keys(ZONE_LAYOUT)) {
       this.zonePlantSlots.set(key, 0);
     }
@@ -349,39 +358,33 @@ export class GardenScene extends Phaser.Scene {
   }
 
   onFileDeleted(filename: string, directory?: string) {
-    const key = directory && this.activeDirectories.size > 1
-      ? `${directory}:${filename}` : filename;
-    const plant = this.plantMap.get(key);
-    if (!plant) return;
-
-    // Shrink and fade out, then destroy
-    this.tweens.add({
-      targets: plant,
-      scaleX: 0,
-      scaleY: 0,
-      alpha: 0,
-      duration: 400,
-      ease: 'Back.easeIn',
-      onComplete: () => plant.destroy(),
-    });
-
-    this.plantMap.delete(key);
+    const key = this.getPlantKey(filename, directory);
+    if (!this.plantPositions.has(key)) return;
     this.plantPositions.delete(key);
+    this.rebuildPlantDisplay();
   }
 
   onFileModified(filename: string) {
-    const plant = this.plantMap.get(filename);
-    if (!plant) return;
+    const matchingDisplayKeys = new Set<string>();
+    for (const [rawKey, displayKey] of this.plantDisplayIndex) {
+      if (rawKey === filename || rawKey.endsWith(`\u0000${filename}`)) {
+        matchingDisplayKeys.add(displayKey);
+      }
+    }
 
-    this.tweens.add({
-      targets: plant,
-      scaleX: 1.3,
-      scaleY: 1.3,
-      duration: 200,
-      yoyo: true,
-      ease: 'Sine.easeInOut',
-    });
-    this.emitParticles(plant.x, plant.y, 3);
+    for (const displayKey of matchingDisplayKeys) {
+      const plant = this.plantMap.get(displayKey);
+      if (!plant) continue;
+      this.tweens.add({
+        targets: plant,
+        scaleX: 1.3,
+        scaleY: 1.3,
+        duration: 200,
+        yoyo: true,
+        ease: 'Sine.easeInOut',
+      });
+      this.emitParticles(plant.x, plant.y, 3);
+    }
   }
 
   // --- Theme ---
@@ -411,14 +414,13 @@ export class GardenScene extends Phaser.Scene {
   getPlantStates(): PlantState[] {
     const plants: PlantState[] = [];
     for (const [key, pos] of this.plantPositions) {
-      // Extract filename from key (may be "dir:filename" or just "filename")
-      const filename = key.includes(':') ? key.split(':').slice(1).join(':') : key;
+      const { filename } = this.parsePlantKey(key);
       plants.push({
         filename,
         x: pos.x,
         y: pos.y,
         zone: pos.zone,
-        createdAt: Date.now(),
+        createdAt: pos.createdAt,
         directory: pos.directory,
         creatorRole: pos.creatorRole,
         growthScale: pos.growthScale,
@@ -429,21 +431,27 @@ export class GardenScene extends Phaser.Scene {
 
   restorePlants(plants: PlantState[]) {
     for (const p of plants) {
-      const key = p.directory ? `${p.directory}:${p.filename}` : p.filename;
-      if (this.plantMap.has(key)) continue;
+      const key = this.getPlantKey(p.filename, p.directory);
+      if (this.plantPositions.has(key)) continue;
 
       if (p.directory) {
         this.activeDirectories.add(p.directory);
       }
 
-      const container = this.growPlant(p.x, p.y, p.filename, p.creatorRole, p.growthScale);
-      this.plantMap.set(key, container);
-      this.plantPositions.set(key, { x: p.x, y: p.y, zone: p.zone, directory: p.directory, creatorRole: p.creatorRole, growthScale: p.growthScale });
-
-      // Update zone slot count
+      this.plantPositions.set(key, {
+        x: p.x,
+        y: p.y,
+        zone: p.zone,
+        createdAt: p.createdAt,
+        directory: p.directory,
+        creatorRole: p.creatorRole,
+        growthScale: p.growthScale,
+      });
       const current = this.zonePlantSlots.get(p.zone) || 0;
       this.zonePlantSlots.set(p.zone, current + 1);
     }
+
+    this.rebuildPlantDisplay();
 
     // Show directory labels if multiple directories were restored
     if (this.activeDirectories.size > 1) {
@@ -452,7 +460,7 @@ export class GardenScene extends Phaser.Scene {
   }
 
   getPlantCount(): number {
-    return this.plantMap.size;
+    return this.plantPositions.size;
   }
 
   // --- Time-Lapse ---
@@ -463,7 +471,8 @@ export class GardenScene extends Phaser.Scene {
 
   private captureSnapshot() {
     const plants: GardenSnapshot['plants'] = [];
-    for (const [filename, pos] of this.plantPositions) {
+    for (const [key, pos] of this.plantPositions) {
+      const { filename } = this.parsePlantKey(key);
       plants.push({ filename, x: pos.x, y: pos.y, zone: pos.zone });
     }
 
@@ -483,7 +492,7 @@ export class GardenScene extends Phaser.Scene {
       plants,
       agents,
       stats: {
-        filesCreated: this.plantMap.size,
+        filesCreated: this.plantPositions.size,
         tasksCompleted: 0,
         activeAgents: 0,
       },
@@ -521,6 +530,87 @@ export class GardenScene extends Phaser.Scene {
     return clean.length > 50 ? clean.slice(-50) : clean;
   }
 
+  private getPlantKey(filename: string, directory?: string): string {
+    return directory ? `${directory}\u0000${filename}` : filename;
+  }
+
+  private parsePlantKey(key: string): { directory?: string; filename: string } {
+    const separatorIndex = key.indexOf('\u0000');
+    if (separatorIndex === -1) {
+      return { filename: key };
+    }
+
+    return {
+      directory: key.slice(0, separatorIndex),
+      filename: key.slice(separatorIndex + 1),
+    };
+  }
+
+  private rebuildPlantDisplay(animatedRawKeys: Set<string> = new Set()) {
+    for (const plant of this.plantMap.values()) {
+      plant.destroy();
+    }
+    this.plantMap.clear();
+    this.plantDisplayIndex.clear();
+
+    const plants = Array.from(this.plantPositions.entries()).map(([key, pos]) => {
+      const { filename } = this.parsePlantKey(key);
+      return {
+        key,
+        filename,
+        x: pos.x,
+        y: pos.y,
+        zone: pos.zone,
+        createdAt: pos.createdAt,
+        directory: pos.directory,
+        creatorRole: pos.creatorRole,
+        growthScale: pos.growthScale,
+      };
+    });
+
+    const layout = groupPlantsForDisplay(plants, {
+      mergeThreshold: this.mergeThreshold,
+      minGroupSize: this.mergeGroupSize,
+    });
+
+    for (const displayPlant of layout.visiblePlants) {
+      const shouldAnimate = displayPlant.kind === 'merged'
+        ? displayPlant.filenames.some((filename) =>
+            plants.some((plant) =>
+              animatedRawKeys.has(plant.key) &&
+              plant.filename === filename &&
+              plant.zone === displayPlant.zone &&
+              plant.directory === displayPlant.directory,
+            ),
+          )
+        : plants.some((plant) =>
+            animatedRawKeys.has(plant.key) &&
+            plant.filename === displayPlant.filename &&
+            plant.zone === displayPlant.zone &&
+            plant.directory === displayPlant.directory,
+          );
+
+      const container = displayPlant.kind === 'merged'
+        ? this.growMergedPlant(displayPlant, shouldAnimate)
+        : this.growPlant(displayPlant.x, displayPlant.y, displayPlant.filename || displayPlant.label, displayPlant.creatorRole, displayPlant.growthScale, shouldAnimate);
+
+      this.plantMap.set(displayPlant.id, container);
+
+      for (const filename of displayPlant.filenames) {
+        const rawMatch = plants.find((plant) =>
+          plant.filename === filename && plant.zone === displayPlant.zone && plant.directory === displayPlant.directory,
+        );
+        if (rawMatch) {
+          this.plantDisplayIndex.set(rawMatch.key, displayPlant.id);
+        }
+      }
+
+      if (shouldAnimate) {
+        this.emitParticles(displayPlant.x, displayPlant.y);
+      }
+    }
+  }
+
   private emitParticles(x: number, y: number, count = 6) {
     const colors = [0x66bb6a, 0x43a047, 0xffee58, 0x81c784];
     for (let i = 0; i < count; i++) {
@@ -548,7 +638,7 @@ export class GardenScene extends Phaser.Scene {
     return zoneStart + normalized * zoneWidth;
   }
 
-  private growPlant(x: number, y: number, filename: string, creatorRole?: AgentRole, growthScale?: number): Phaser.GameObjects.Container {
+  private growPlant(x: number, y: number, filename: string, creatorRole?: AgentRole, growthScale?: number, animate = true): Phaser.GameObjects.Container {
     const ext = filename.split('.').pop() || '';
     const isTest = filename.includes('.test.') || filename.includes('.spec.');
     const { stemColor, topColor, topShape } = isTest
@@ -560,14 +650,18 @@ export class GardenScene extends Phaser.Scene {
 
     const targetHeight = Math.round((20 + Math.random() * 20) * (growthScale || 1));
 
-    this.tweens.add({
-      targets: stem,
-      height: { from: 0, to: targetHeight },
-      duration: 800,
-      ease: 'Back.easeOut',
-    });
+    if (animate) {
+      this.tweens.add({
+        targets: stem,
+        height: { from: 0, to: targetHeight },
+        duration: 800,
+        ease: 'Back.easeOut',
+      });
+    } else {
+      stem.height = targetHeight;
+    }
 
-    this.time.delayedCall(800, () => {
+    const addTop = () => {
       let top: Phaser.GameObjects.Shape;
       if (topShape === 'circle') {
         top = this.add.circle(0, -targetHeight, 6, topColor);
@@ -580,15 +674,23 @@ export class GardenScene extends Phaser.Scene {
       }
       container.add(top);
 
-      top.setScale(0);
-      this.tweens.add({
-        targets: top,
-        scaleX: 1,
-        scaleY: 1,
-        duration: 300,
-        ease: 'Back.easeOut',
-      });
-    });
+      if (animate) {
+        top.setScale(0);
+        this.tweens.add({
+          targets: top,
+          scaleX: 1,
+          scaleY: 1,
+          duration: 300,
+          ease: 'Back.easeOut',
+        });
+      }
+    };
+
+    if (animate) {
+      this.time.delayedCall(800, addTop);
+    } else {
+      addTop();
+    }
 
     const label = this.add.text(
       0, 8,
@@ -604,6 +706,71 @@ export class GardenScene extends Phaser.Scene {
         : creatorRole === 'tester' ? 0x42a5f5
         : 0xce93d8;
       const dot = this.add.circle(0, 4, 3, dotColor).setDepth(15);
+      container.add(dot);
+    }
+
+    return container;
+  }
+
+  private growMergedPlant(displayPlant: DisplayPlant, animate: boolean): Phaser.GameObjects.Container {
+    const stem = this.add.rectangle(0, 0, 10, 0, 0x6d4c41).setOrigin(0.5, 1);
+    const container = this.add.container(displayPlant.x, displayPlant.y, [stem]);
+    const targetHeight = Math.round((34 + Math.min(26, displayPlant.fileCount * 4)) * (displayPlant.growthScale || 1));
+
+    if (animate) {
+      this.tweens.add({
+        targets: stem,
+        height: { from: 0, to: targetHeight },
+        duration: 900,
+        ease: 'Back.easeOut',
+      });
+    } else {
+      stem.height = targetHeight;
+    }
+
+    const addCanopy = () => {
+      const canopy = this.add.ellipse(0, -targetHeight, 34, 22, 0x43a047);
+      const badge = this.add.circle(12, -targetHeight - 4, 9, 0xffee58);
+      const badgeText = this.add.text(12, -targetHeight - 4, `${displayPlant.fileCount}`, {
+        fontSize: '9px',
+        color: '#243b1a',
+        fontFamily: 'monospace',
+      }).setOrigin(0.5);
+      container.add([canopy, badge, badgeText]);
+
+      if (animate) {
+        canopy.setScale(0);
+        badge.setScale(0);
+        badgeText.setScale(0);
+        this.tweens.add({
+          targets: [canopy, badge, badgeText],
+          scaleX: 1,
+          scaleY: 1,
+          duration: 300,
+          ease: 'Back.easeOut',
+        });
+      }
+    };
+
+    if (animate) {
+      this.time.delayedCall(700, addCanopy);
+    } else {
+      addCanopy();
+    }
+
+    const label = this.add.text(0, 8, displayPlant.label, {
+      fontSize: '7px',
+      color: '#dcedc8',
+      fontFamily: 'monospace',
+    }).setOrigin(0.5, 0);
+    container.add(label);
+
+    if (displayPlant.creatorRole && displayPlant.creatorRole !== 'unassigned') {
+      const dotColor = displayPlant.creatorRole === 'planter' ? 0x66bb6a
+        : displayPlant.creatorRole === 'weeder' ? 0xffa726
+        : displayPlant.creatorRole === 'tester' ? 0x42a5f5
+        : 0xce93d8;
+      const dot = this.add.circle(-14, 4, 4, dotColor).setDepth(15);
       container.add(dot);
     }
 

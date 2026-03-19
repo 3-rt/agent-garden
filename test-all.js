@@ -517,6 +517,102 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(filteredEntries[0].file === 'src/App.tsx', 'Filtering returns matching activity entry');
 
   // ============================================================
+  // AG-9: Merged Plant Layout
+  // ============================================================
+  section('AG-9: Merged Plant Layout');
+
+  const plantClusterSource = fs.readFileSync(path.join(__dirname, 'src', 'renderer', 'game', 'plant-clusters.ts'), 'utf-8');
+  assert(!plantClusterSource.includes("from 'path'"), 'Plant clustering stays browser-safe without Node path imports');
+
+  let plantClustersModuleLoaded = false;
+  let groupPlantsForDisplay;
+  try {
+    ({ groupPlantsForDisplay } = require('./test-build/renderer/game/plant-clusters'));
+    plantClustersModuleLoaded = true;
+  } catch (error) {
+    console.log(`  INFO: plant-clusters module unavailable during red phase: ${error.message}`);
+  }
+  assert(plantClustersModuleLoaded, 'Plant cluster layout module compiles');
+
+  if (plantClustersModuleLoaded) {
+    const smallLayout = groupPlantsForDisplay([
+      { filename: 'src/App.tsx', x: 10, y: 20, zone: 'frontend', createdAt: 1, directory: '/repo' },
+      { filename: 'src/Button.tsx', x: 20, y: 30, zone: 'frontend', createdAt: 2, directory: '/repo' },
+    ], {
+      mergeThreshold: 4,
+      minGroupSize: 2,
+    });
+    assert(smallLayout.totalFiles === 2, 'Small layout reports total file count');
+    assert(smallLayout.visiblePlants.length === 2, 'Small layout keeps one plant per file below threshold');
+    assert(smallLayout.visiblePlants.every((plant) => plant.kind === 'single'), 'Small layout emits only single plants');
+
+    const mergedLayout = groupPlantsForDisplay([
+      { filename: 'src/main/a.ts', x: 100, y: 100, zone: 'backend', createdAt: 1, directory: '/repo/src/main' },
+      { filename: 'src/main/b.ts', x: 110, y: 110, zone: 'backend', createdAt: 2, directory: '/repo/src/main' },
+      { filename: 'src/main/c.ts', x: 120, y: 120, zone: 'backend', createdAt: 3, directory: '/repo/src/main' },
+      { filename: 'src/renderer/App.tsx', x: 400, y: 90, zone: 'frontend', createdAt: 4, directory: '/repo/src/renderer' },
+      { filename: 'src/renderer/StatsPanel.tsx', x: 420, y: 105, zone: 'frontend', createdAt: 5, directory: '/repo/src/renderer' },
+    ], {
+      mergeThreshold: 4,
+      minGroupSize: 2,
+    });
+    assert(mergedLayout.totalFiles === 5, 'Merged layout reports total file count');
+    assert(mergedLayout.visiblePlants.length === 2, 'Merged layout collapses directory groups into composite plants');
+    assert(mergedLayout.visiblePlants.every((plant) => plant.kind === 'merged'), 'Merged layout emits composite plants above threshold');
+
+    const backendMergedPlant = mergedLayout.visiblePlants.find((plant) => plant.zone === 'backend');
+    assert(backendMergedPlant.fileCount === 3, 'Merged plant stores grouped file count');
+    assert(backendMergedPlant.label.includes('src/main'), 'Merged plant label includes grouped directory name');
+    assert(backendMergedPlant.filenames.includes('src/main/a.ts'), 'Merged plant keeps grouped file membership');
+
+    const mixedLayout = groupPlantsForDisplay([
+      { filename: 'src/main/a.ts', x: 100, y: 100, zone: 'backend', createdAt: 1, directory: '/repo/src/main' },
+      { filename: 'src/main/b.ts', x: 110, y: 110, zone: 'backend', createdAt: 2, directory: '/repo/src/main' },
+      { filename: 'README.md', x: 300, y: 200, zone: 'backend', createdAt: 3, directory: '/repo' },
+      { filename: 'src/App.tsx', x: 400, y: 90, zone: 'frontend', createdAt: 4, directory: '/repo/src' },
+      { filename: 'src/Button.tsx', x: 410, y: 100, zone: 'frontend', createdAt: 5, directory: '/repo/src' },
+    ], {
+      mergeThreshold: 4,
+      minGroupSize: 2,
+    });
+    assert(mixedLayout.visiblePlants.length === 3, 'Mixed layout keeps singleton files visible while merging larger groups');
+    assert(mixedLayout.visiblePlants.some((plant) => plant.kind === 'single' && plant.filename === 'README.md'), 'Mixed layout preserves singleton file metadata');
+
+    const tunedLayout = groupPlantsForDisplay([
+      { filename: 'src/services/api.ts', x: 100, y: 100, zone: 'backend', createdAt: 1, growthScale: 1.4 },
+      { filename: 'src/services/cache.ts', x: 115, y: 102, zone: 'backend', createdAt: 2, growthScale: 1.2 },
+      { filename: 'src/lib/math.ts', x: 190, y: 120, zone: 'backend', createdAt: 3, growthScale: 1.1 },
+      { filename: 'src/lib/date.ts', x: 205, y: 126, zone: 'backend', createdAt: 4, growthScale: 1.05 },
+      { filename: 'README.md', x: 320, y: 140, zone: 'backend', createdAt: 5, growthScale: 0.95 },
+      { filename: 'package-lock.json', x: 336, y: 142, zone: 'backend', createdAt: 6, growthScale: 0.95 },
+      { filename: '__pycache__/server.cpython-313.pyc', x: 355, y: 150, zone: 'backend', createdAt: 7, growthScale: 0.95 },
+      { filename: 'web/src/app/home/page.tsx', x: 420, y: 90, zone: 'frontend', createdAt: 8, growthScale: 1.35 },
+      { filename: 'web/src/app/about/page.tsx', x: 438, y: 98, zone: 'frontend', createdAt: 9, growthScale: 1.3 },
+      { filename: 'web/src/components/chart.tsx', x: 456, y: 110, zone: 'frontend', createdAt: 10, growthScale: 1.2 },
+      { filename: 'web/src/components/table.tsx', x: 474, y: 118, zone: 'frontend', createdAt: 11, growthScale: 1.15 },
+      { filename: 'tests/unit/test_forecast.py', x: 760, y: 160, zone: 'tests', createdAt: 12, growthScale: 1.2 },
+      { filename: 'tests/unit/test_model.py', x: 778, y: 168, zone: 'tests', createdAt: 13, growthScale: 1.15 },
+      { filename: 'tests/integration/test_api.py', x: 798, y: 174, zone: 'tests', createdAt: 14, growthScale: 1.1 },
+      { filename: 'tests/__pycache__/test_api.cpython-313.pyc', x: 816, y: 182, zone: 'tests', createdAt: 15, growthScale: 0.95 },
+    ], {
+      mergeThreshold: 4,
+      minGroupSize: 2,
+    });
+
+    const backendVisible = tunedLayout.visiblePlants.filter((plant) => plant.zone === 'backend');
+    assert(backendVisible.length >= 2, 'Tuned layout keeps multiple visible plants in a populated backend zone');
+    assert(backendVisible.some((plant) => plant.label.includes('src/services')), 'Tuned layout prioritizes services directories');
+    assert(backendVisible.some((plant) => plant.label.includes('src/lib')), 'Tuned layout prioritizes library directories');
+    assert(backendVisible.every((plant) => plant.label !== 'README.md'), 'Tuned layout suppresses README as a primary visible label');
+    assert(backendVisible.every((plant) => !plant.label.includes('__pycache__')), 'Tuned layout suppresses cache labels');
+
+    const testVisible = tunedLayout.visiblePlants.filter((plant) => plant.zone === 'tests');
+    assert(testVisible.length >= 2, 'Tuned layout keeps multiple visible plants in a populated tests zone');
+    assert(testVisible.some((plant) => plant.label.includes('tests/unit')), 'Tuned layout preserves high-signal test directories');
+    assert(testVisible.every((plant) => !plant.label.includes('__pycache__')), 'Tuned layout avoids cache labels in tests zone');
+  }
+
+  // ============================================================
   // Phase 5f: Directory Management
   // ============================================================
   section('Phase 5f: FileWatcher Multi-Directory');

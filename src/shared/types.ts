@@ -149,6 +149,7 @@ export interface ActivityLogEntry {
   kind: ActivityLogKind;
   message: string;
   agentId?: string;
+  agentLabel?: string;
   sessionId?: string;
   role?: AgentRole;
   tool?: string;

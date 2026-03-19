@@ -14,6 +14,7 @@ interface AgentActivityPayload {
   event: HookEventType;
   tool?: string;
   file?: string;
+  agentLabel?: string;
 }
 
 interface PlanLogPayload {
@@ -29,9 +30,11 @@ interface FilterOptions {
 }
 
 const DEFAULT_MAX_ENTRIES = 400;
+let activityLogSequence = 0;
 
 function buildEntryId(prefix: string, timestamp: number, suffix: string): string {
-  return `${prefix}-${timestamp}-${suffix}`;
+  activityLogSequence += 1;
+  return `${prefix}-${timestamp}-${activityLogSequence}-${suffix}`;
 }
 
 function labelForDirectory(directory?: string): string {
@@ -58,6 +61,7 @@ export function createAgentLifecycleLogEntry(
 ): ActivityLogEntry {
   const directoryLabel = labelForDirectory(session.directory);
   const sourceLabel = session.source ? ` via ${session.source}` : '';
+  const agentLabel = session.directory ? directoryLabel : session.agentId;
   let message = '';
 
   if (kind === 'agent-connected') {
@@ -75,6 +79,7 @@ export function createAgentLifecycleLogEntry(
     kind,
     message,
     agentId: session.agentId,
+    agentLabel,
     sessionId: session.sessionId,
     role: session.role,
     status,
@@ -110,13 +115,18 @@ export function createAgentActivityLogEntry(
     kind,
     message,
     agentId: activity.agentId,
+    agentLabel: activity.agentLabel,
     tool: activity.tool,
     file: activity.file,
     status: activity.event,
   };
 }
 
-export function createFileEventLogEntry(event: FileEvent, timestamp = Date.now()): ActivityLogEntry {
+export function createFileEventLogEntry(
+  event: FileEvent,
+  timestamp = Date.now(),
+  agentLabel?: string,
+): ActivityLogEntry {
   const fileLabel = event.path;
   const roleLabel = event.creatorRole ? `${event.creatorRole} ` : '';
 
@@ -127,6 +137,7 @@ export function createFileEventLogEntry(event: FileEvent, timestamp = Date.now()
     kind: 'file-event',
     message: `${roleLabel}file ${event.type}: ${fileLabel}`,
     agentId: event.agentId,
+    agentLabel: agentLabel || event.agentId,
     role: event.creatorRole,
     file: event.path,
     status: event.type,
@@ -173,6 +184,7 @@ export function createPlanLogEntry(
     kind,
     message: `${subtask?.role || 'agent'} ${subtask?.status || 'updated'}: ${subtask?.prompt || 'subtask'}`,
     agentId: subtask?.agentId,
+    agentLabel: subtask?.role,
     sessionId: subtask?.sessionId,
     role: subtask?.role,
     planId: subtaskPayload.planId,
@@ -208,6 +220,7 @@ export function filterActivityLogEntries(
       entry.tool,
       entry.file,
       entry.agentId,
+      entry.agentLabel,
       entry.planId,
       entry.status,
     ]

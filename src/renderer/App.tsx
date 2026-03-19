@@ -84,6 +84,9 @@ export function App() {
       return undefined;
     };
 
+    const labelForAgentSession = (session?: Partial<CCAgentSession>) =>
+      session?.directory ? session.directory.split('/').pop() || session.agentId : session?.agentId;
+
     if (gameContainerRef.current && !gameRef.current) {
       gameRef.current = new GardenGame(gameContainerRef.current);
 
@@ -118,7 +121,9 @@ export function App() {
       } else if (event.type === 'deleted') {
         gameRef.current?.onFileDeleted(event.path, event.directory);
       }
-      appendLogEntry(createFileEventLogEntry(event));
+      appendLogEntry(
+        createFileEventLogEntry(event, Date.now(), labelForAgentSession(findAgentSession(event.agentId))),
+      );
     });
 
     window.electronAPI?.onDirectoryChanged((dir) => {
@@ -174,9 +179,7 @@ export function App() {
 
     window.electronAPI?.onCCAgentConnected((session) => {
       updateAgents((prev) => [...prev, session]);
-      const label = session.directory
-        ? session.directory.split('/').pop() || session.agentId
-        : session.agentId;
+      const label = labelForAgentSession(session);
       gameRef.current?.addAgent(session.agentId, session.role, label);
       appendLogEntry(createAgentLifecycleLogEntry('agent-connected', session));
     });
@@ -189,7 +192,13 @@ export function App() {
 
       gameRef.current?.showActivity(data.agentId, data.event, detail);
       if (data.tool !== 'output') {
-        appendLogEntry(createAgentActivityLogEntry(data, Date.now(), detail));
+        appendLogEntry(
+          createAgentActivityLogEntry(
+            { ...data, agentLabel: labelForAgentSession(findAgentSession(data.agentId)) },
+            Date.now(),
+            detail,
+          ),
+        );
       }
     });
 
@@ -211,7 +220,12 @@ export function App() {
       gameRef.current?.onAgentThought(data.agentId, data.text);
       appendLogEntry(
         createAgentActivityLogEntry(
-          { agentId: data.agentId, event: 'PostToolUse', tool: 'output' },
+          {
+            agentId: data.agentId,
+            event: 'PostToolUse',
+            tool: 'output',
+            agentLabel: labelForAgentSession(findAgentSession(data.agentId, data.sessionId)),
+          },
           Date.now(),
           data.text.trim() || 'streamed output',
         ),

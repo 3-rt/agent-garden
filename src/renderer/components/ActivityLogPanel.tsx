@@ -55,11 +55,12 @@ export function ActivityLogPanel({
 }
 
 function ActivityLogItem({ entry }: { entry: ActivityLogEntry }) {
+  const agentLabel = entry.agentLabel || entry.agentId;
   return (
     <div style={itemStyle}>
       <div style={itemMetaStyle}>
         <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
-        {entry.agentId && <span>{entry.agentId}</span>}
+        {agentLabel && <span>{agentLabel}</span>}
         {entry.status && <span>{entry.status}</span>}
       </div>
       <div style={{ color: '#c9d1d9' }}>{entry.message}</div>
