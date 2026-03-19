@@ -1412,6 +1412,27 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
     })
   ), 'Scatter placement preserves minimum spacing inside a bed');
 
+  const splitBedDisplay = groupPlantsForDisplay([
+    { filename: 'src/main/services/a.ts', x: 100, y: 200, zone: 'backend', createdAt: 1, bedId: 'bed-left' },
+    { filename: 'src/main/services/b.ts', x: 300, y: 200, zone: 'backend', createdAt: 1, bedId: 'bed-right' },
+  ], { mergeThreshold: 1, minGroupSize: 2 });
+  assert(splitBedDisplay.visiblePlants.length === 2, 'Display clustering keeps split directory groups separate per bed');
+  assert(
+    splitBedDisplay.visiblePlants.every((plant) => plant.x === 100 || plant.x === 300),
+    'Display clustering keeps split groups anchored to bed positions',
+  );
+
+  const remainderBedDisplay = groupPlantsForDisplay([
+    { filename: 'README.md', x: 100, y: 190, zone: 'backend', createdAt: 1, bedId: 'bed-left' },
+    { filename: 'package-lock.json', x: 100, y: 210, zone: 'backend', createdAt: 1, bedId: 'bed-left' },
+    { filename: 'yarn.lock', x: 300, y: 190, zone: 'backend', createdAt: 1, bedId: 'bed-right' },
+    { filename: 'pnpm-lock.yaml', x: 300, y: 210, zone: 'backend', createdAt: 1, bedId: 'bed-right' },
+  ], { mergeThreshold: 1, minGroupSize: 2 });
+  assert(
+    remainderBedDisplay.visiblePlants.every((plant) => plant.x === 100 || plant.x === 300),
+    'Display clustering keeps low-signal merged remainder anchored to individual beds',
+  );
+
   // ============================================================
   // AG-10: Initial Garden Generation
   // ============================================================

@@ -9,6 +9,7 @@ export interface DisplayPlant {
   id: string;
   kind: 'single' | 'merged';
   zone: string;
+  bedId?: string;
   x: number;
   y: number;
   label: string;
@@ -28,6 +29,7 @@ export interface PlantDisplayLayout {
 interface CandidateGroup {
   id: string;
   zone: string;
+  bedId?: string;
   groupPath: string;
   plants: PlantState[];
   signalScore: number;
@@ -226,6 +228,7 @@ function toDisplayPlant(group: CandidateGroup): DisplayPlant {
       id: plant.directory ? `${plant.directory}:${plant.filename}` : plant.filename,
       kind: 'single',
       zone: plant.zone,
+      bedId: plant.bedId,
       x: plant.x,
       y: plant.y,
       label,
@@ -239,9 +242,10 @@ function toDisplayPlant(group: CandidateGroup): DisplayPlant {
   }
 
   return {
-    id: `merged:${group.zone}:${group.groupPath}`,
+    id: `merged:${group.zone}:${group.bedId || 'none'}:${group.groupPath}`,
     kind: 'merged',
     zone: group.zone,
+    bedId: group.bedId,
     x: Math.round(average(group.plants.map((plant) => plant.x))),
     y: Math.round(average(group.plants.map((plant) => plant.y))),
     label,
@@ -253,29 +257,45 @@ function toDisplayPlant(group: CandidateGroup): DisplayPlant {
   };
 }
 
-function buildMergedRemainder(zone: string, groups: CandidateGroup[], minGroupSize: number): DisplayPlant | null {
-  if (!groups.length) return null;
+function buildMergedRemainders(zone: string, groups: CandidateGroup[], minGroupSize: number): DisplayPlant[] {
+  if (!groups.length) return [];
 
-  const plants = groups.flatMap((group) => group.plants);
-  const filenames = plants.map((plant) => plant.filename).sort();
-
-  if (plants.length === 1 && groups.length === 1 && groups[0].plants.length < minGroupSize) {
-    return toDisplayPlant(groups[0]);
+  const groupsByBed = new Map<string, CandidateGroup[]>();
+  for (const group of groups) {
+    const key = group.bedId || '__no_bed__';
+    const bucket = groupsByBed.get(key) || [];
+    bucket.push(group);
+    groupsByBed.set(key, bucket);
   }
 
-  return {
-    id: `merged:${zone}:remainder`,
-    kind: 'merged',
-    zone,
-    x: Math.round(average(plants.map((plant) => plant.x))),
-    y: Math.round(average(plants.map((plant) => plant.y))),
-    label: ZONE_FALLBACK_LABELS[zone] || 'project files',
-    fileCount: plants.length,
-    filenames,
-    directory: plants.find((plant) => plant.directory)?.directory,
-    creatorRole: selectRole(plants),
-    growthScale: Math.min(2.8, Math.max(...plants.map((plant) => plant.growthScale || 1)) + Math.min(0.9, plants.length * 0.12)),
-  };
+  const remainderPlants: DisplayPlant[] = [];
+
+  for (const [bedKey, bedGroups] of groupsByBed) {
+    const plants = bedGroups.flatMap((group) => group.plants);
+    const filenames = plants.map((plant) => plant.filename).sort();
+
+    if (plants.length === 1 && bedGroups.length === 1 && bedGroups[0].plants.length < minGroupSize) {
+      remainderPlants.push(toDisplayPlant(bedGroups[0]));
+      continue;
+    }
+
+    remainderPlants.push({
+      id: `merged:${zone}:${bedKey}:remainder`,
+      kind: 'merged',
+      zone,
+      bedId: bedKey === '__no_bed__' ? undefined : bedKey,
+      x: Math.round(average(plants.map((plant) => plant.x))),
+      y: Math.round(average(plants.map((plant) => plant.y))),
+      label: ZONE_FALLBACK_LABELS[zone] || 'project files',
+      fileCount: plants.length,
+      filenames,
+      directory: plants.find((plant) => plant.directory)?.directory,
+      creatorRole: selectRole(plants),
+      growthScale: Math.min(2.8, Math.max(...plants.map((plant) => plant.growthScale || 1)) + Math.min(0.9, plants.length * 0.12)),
+    });
+  }
+
+  return remainderPlants;
 }
 
 export function groupPlantsForDisplay(
@@ -308,7 +328,7 @@ export function groupPlantsForDisplay(
 
   for (const plant of plants) {
     const groupPath = normalizeGroupPath(plant.filename);
-    const key = `${plant.zone}::${groupPath}`;
+    const key = `${plant.zone}\u0000${plant.bedId || ''}\u0000${groupPath}`;
     const group = rawGroups.get(key) || [];
     group.push(plant);
     rawGroups.set(key, group);
@@ -317,10 +337,11 @@ export function groupPlantsForDisplay(
   const groupsByZone = new Map<string, CandidateGroup[]>();
 
   for (const [key, groupPlants] of rawGroups) {
-    const [zone, groupPath] = key.split('::');
+    const [zone, bedId, groupPath] = key.split('\u0000');
     const candidate: CandidateGroup = {
       id: key,
       zone,
+      bedId: bedId || undefined,
       groupPath,
       plants: groupPlants,
       signalScore: scoreGroup(groupPath, groupPlants),
@@ -351,10 +372,7 @@ export function groupPlantsForDisplay(
       visiblePlants.push(toDisplayPlant(group));
     }
 
-    const mergedRemainder = buildMergedRemainder(zone, remainingGroups, resolved.minGroupSize);
-    if (mergedRemainder) {
-      visiblePlants.push(mergedRemainder);
-    }
+    visiblePlants.push(...buildMergedRemainders(zone, remainingGroups, resolved.minGroupSize));
   }
 
   visiblePlants.sort((a, b) => a.zone.localeCompare(b.zone) || a.x - b.x || a.y - b.y || a.label.localeCompare(b.label));
