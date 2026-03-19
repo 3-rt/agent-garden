@@ -5,8 +5,23 @@ import { StatsPanel } from './components/StatsPanel';
 import { ThemePicker } from './components/ThemePicker';
 import { SetupBanner } from './components/SetupBanner';
 import { HookSetupModal } from './components/HookSetupModal';
+import { ActivityLogPanel } from './components/ActivityLogPanel';
 import { ThemeManager } from './game/systems/ThemeManager';
-import type { CCAgentSession, OrchestrationPlan, GardenStats, HookConnectionStatus } from '../shared/types';
+import {
+  appendActivityLogEntry,
+  createAgentActivityLogEntry,
+  createAgentLifecycleLogEntry,
+  createFileEventLogEntry,
+  createPlanLogEntry,
+  filterActivityLogEntries,
+} from './activity-log';
+import type {
+  ActivityLogEntry,
+  CCAgentSession,
+  OrchestrationPlan,
+  GardenStats,
+  HookConnectionStatus,
+} from '../shared/types';
 
 const availableThemes = ThemeManager.getAvailableThemes();
 
@@ -32,6 +47,10 @@ export function App() {
   const [ccAgents, setCCAgents] = useState<CCAgentSession[]>([]);
   const [plans, setPlans] = useState<OrchestrationPlan[]>([]);
   const [goalInput, setGoalInput] = useState('');
+  const [activityLogEntries, setActivityLogEntries] = useState<ActivityLogEntry[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [activitySearch, setActivitySearch] = useState('');
+  const agentSessionsRef = useRef<CCAgentSession[]>([]);
 
   useEffect(() => {
     const restoreGeneratedGarden = async (themeId?: string) => {
@@ -40,6 +59,29 @@ export function App() {
       gameRef.current.restorePlants(generatedPlants);
       window.electronAPI?.saveGardenState(generatedPlants, themeId || gameRef.current.getThemeId());
       setStats((prev) => ({ ...prev, filesCreated: generatedPlants.length }));
+    };
+
+    const appendLogEntry = (entry: ActivityLogEntry) => {
+      setActivityLogEntries((prev) => appendActivityLogEntry(prev, entry));
+    };
+
+    const updateAgents = (updater: (prev: CCAgentSession[]) => CCAgentSession[]) => {
+      setCCAgents((prev) => {
+        const next = updater(prev);
+        agentSessionsRef.current = next;
+        return next;
+      });
+    };
+
+    const findAgentSession = (agentId?: string, sessionId?: string) => {
+      if (sessionId) {
+        const bySession = agentSessionsRef.current.find((agent) => agent.sessionId === sessionId);
+        if (bySession) return bySession;
+      }
+      if (agentId) {
+        return agentSessionsRef.current.find((agent) => agent.agentId === agentId);
+      }
+      return undefined;
     };
 
     if (gameContainerRef.current && !gameRef.current) {
@@ -76,6 +118,7 @@ export function App() {
       } else if (event.type === 'deleted') {
         gameRef.current?.onFileDeleted(event.path, event.directory);
       }
+      appendLogEntry(createFileEventLogEntry(event));
     });
 
     window.electronAPI?.onDirectoryChanged((dir) => {
@@ -119,6 +162,7 @@ export function App() {
 
     // Claude Code agent events
     window.electronAPI?.getCCAgents().then((agents) => {
+      agentSessionsRef.current = agents;
       setCCAgents(agents);
       for (const agent of agents) {
         const label = agent.directory
@@ -129,11 +173,12 @@ export function App() {
     });
 
     window.electronAPI?.onCCAgentConnected((session) => {
-      setCCAgents((prev) => [...prev, session]);
+      updateAgents((prev) => [...prev, session]);
       const label = session.directory
         ? session.directory.split('/').pop() || session.agentId
         : session.agentId;
       gameRef.current?.addAgent(session.agentId, session.role, label);
+      appendLogEntry(createAgentLifecycleLogEntry('agent-connected', session));
     });
 
     window.electronAPI?.onCCAgentActivity((data) => {
@@ -143,18 +188,46 @@ export function App() {
       else if (data.tool) detail = data.tool;
 
       gameRef.current?.showActivity(data.agentId, data.event, detail);
+      if (data.tool !== 'output') {
+        appendLogEntry(createAgentActivityLogEntry(data, Date.now(), detail));
+      }
     });
 
     window.electronAPI?.onCCAgentDisconnected((data) => {
-      setCCAgents((prev) => prev.filter((a) => a.agentId !== data.agentId));
+      const session = findAgentSession(data.agentId);
+      appendLogEntry(
+        createAgentLifecycleLogEntry(
+          'agent-disconnected',
+          session || { agentId: data.agentId },
+          Date.now(),
+          data.reason,
+        ),
+      );
+      updateAgents((prev) => prev.filter((a) => a.agentId !== data.agentId));
       gameRef.current?.removeAgent(data.agentId);
     });
 
     window.electronAPI?.onCCAgentOutput((data) => {
       gameRef.current?.onAgentThought(data.agentId, data.text);
+      appendLogEntry(
+        createAgentActivityLogEntry(
+          { agentId: data.agentId, event: 'PostToolUse', tool: 'output' },
+          Date.now(),
+          data.text.trim() || 'streamed output',
+        ),
+      );
     });
 
     window.electronAPI?.onCCAgentExited((data) => {
+      const session = findAgentSession(data.agentId, data.sessionId);
+      appendLogEntry(
+        createAgentLifecycleLogEntry(
+          'agent-exited',
+          session || { agentId: data.agentId, sessionId: data.sessionId },
+          Date.now(),
+          data.code === 0 || data.code === null ? 'success' : 'error',
+        ),
+      );
       if (data.code === 0 || data.code === null) {
         gameRef.current?.onTaskComplete(data.agentId);
       } else {
@@ -162,7 +235,7 @@ export function App() {
       }
       // Remove sprite after a short delay so the completion/error animation is visible
       setTimeout(() => {
-        setCCAgents((prev) => prev.filter((a) => a.sessionId !== data.sessionId));
+        updateAgents((prev) => prev.filter((a) => a.sessionId !== data.sessionId));
         gameRef.current?.removeAgent(data.agentId);
       }, 3000);
     });
@@ -172,9 +245,11 @@ export function App() {
 
     window.electronAPI?.onPlanCreated((plan) => {
       setPlans((prev) => [...prev, plan]);
+      appendLogEntry(createPlanLogEntry('plan-created', plan));
     });
 
     window.electronAPI?.onSubtaskUpdated((data) => {
+      appendLogEntry(createPlanLogEntry('subtask-updated', data));
       setPlans((prev) =>
         prev.map((p) =>
           p.id === data.planId
@@ -190,6 +265,7 @@ export function App() {
     });
 
     window.electronAPI?.onPlanCompleted((plan) => {
+      appendLogEntry(createPlanLogEntry('plan-completed', plan));
       setPlans((prev) => prev.map((p) => (p.id === plan.id ? plan : p)));
     });
 
@@ -265,6 +341,16 @@ export function App() {
   };
 
   const plantCount = gameRef.current?.getPlantCount() || 0;
+  const filteredActivityLogEntries = filterActivityLogEntries(activityLogEntries, {
+    selectedAgentId,
+    searchText: activitySearch,
+  });
+  const selectedAgent = selectedAgentId
+    ? ccAgents.find((agent) => agent.agentId === selectedAgentId)
+    : undefined;
+  const selectedAgentLabel = selectedAgent
+    ? (selectedAgent.directory ? selectedAgent.directory.split('/').pop() || selectedAgent.agentId : selectedAgent.agentId)
+    : selectedAgentId || undefined;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -295,6 +381,7 @@ export function App() {
           {ccAgents.map((agent) => (
             <div
               key={agent.agentId}
+              onClick={() => setSelectedAgentId((prev) => (prev === agent.agentId ? null : agent.agentId))}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -302,8 +389,15 @@ export function App() {
                 padding: '2px 8px',
                 background: agent.status === 'working' ? '#1a1a2a' : '#0d1117',
                 borderRadius: '3px',
-                border: `1px solid ${agent.status === 'working' ? roleColor[agent.role] || '#ce93d8' : '#333'}`,
+                border: `1px solid ${
+                  selectedAgentId === agent.agentId
+                    ? '#7ec8e3'
+                    : agent.status === 'working'
+                      ? roleColor[agent.role] || '#ce93d8'
+                      : '#333'
+                }`,
                 color: roleColor[agent.role] || '#ce93d8',
+                cursor: 'pointer',
               }}
             >
               <span style={{
@@ -320,7 +414,10 @@ export function App() {
               {agent.source === 'spawned' && (
                 <>
                   <button
-                    onClick={() => handleOpenTerminal(agent.sessionId)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleOpenTerminal(agent.sessionId);
+                    }}
                     style={{
                       padding: '0 4px', background: 'transparent', border: '1px solid #444',
                       borderRadius: '2px', color: '#7ec8e3', fontSize: '9px', cursor: 'pointer', fontFamily: 'monospace',
@@ -328,7 +425,10 @@ export function App() {
                     title="Open in terminal"
                   >term</button>
                   <button
-                    onClick={() => handleStopAgent(agent.sessionId)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleStopAgent(agent.sessionId);
+                    }}
                     style={{
                       padding: '0 4px', background: 'transparent', border: '1px solid #4a1515',
                       borderRadius: '2px', color: '#ef5350', fontSize: '9px', cursor: 'pointer', fontFamily: 'monospace',
@@ -462,6 +562,13 @@ export function App() {
             <span style={{ flex: 1 }}>{lastError}</span>
           </div>
         )}
+        <ActivityLogPanel
+          entries={filteredActivityLogEntries}
+          selectedAgentLabel={selectedAgentLabel}
+          searchText={activitySearch}
+          onSearchTextChange={setActivitySearch}
+          onClearAgentFilter={() => setSelectedAgentId(null)}
+        />
         <div style={{ marginTop: '6px' }}>
           <DirectoryPicker directory={directory} additionalDirectories={additionalDirectories} />
         </div>
