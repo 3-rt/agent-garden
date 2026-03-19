@@ -11,7 +11,7 @@ export class GardenGame {
     const h = container.clientHeight || 600;
 
     this.game = new Phaser.Game({
-      type: Phaser.AUTO,
+      type: Phaser.CANVAS,
       parent: container,
       width: w,
       height: h,

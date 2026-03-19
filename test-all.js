@@ -405,6 +405,254 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   }
 
   // ============================================================
+  // AG-14: Garden Resize Handling
+  // ============================================================
+  section('AG-14: Garden Resize Handling');
+
+  const ModuleAg14 = require('module');
+
+  function createScaleStub(width, height) {
+    const listeners = new Map();
+    return {
+      width,
+      height,
+      on(event, handler, context) {
+        const current = listeners.get(event) || [];
+        current.push({ handler, context });
+        listeners.set(event, current);
+      },
+      emit(event, ...args) {
+        for (const listener of listeners.get(event) || []) {
+          listener.handler.call(listener.context, ...args);
+        }
+      },
+    };
+  }
+
+  function createDisplayObject(x = 0, y = 0) {
+    return {
+      x,
+      y,
+      width: 0,
+      height: 0,
+      alpha: 1,
+      visible: true,
+      destroyed: false,
+      setDepth() { return this; },
+      setOrigin() { return this; },
+      setVisible(value) { this.visible = value; return this; },
+      setColor(value) { this.color = value; return this; },
+      setFillStyle(value) { this.fillStyle = value; return this; },
+      setPosition(nextX, nextY) { this.x = nextX; this.y = nextY; return this; },
+      setSize(widthValue, heightValue) { this.width = widthValue; this.height = heightValue; return this; },
+      setScale(scaleX, scaleY = scaleX) { this.scaleX = scaleX; this.scaleY = scaleY; return this; },
+      setAlpha(value) { this.alpha = value; return this; },
+      setText(value) { this.text = value; return this; },
+      destroy() { this.destroyed = true; return this; },
+    };
+  }
+
+  const phaserStub = {
+    AUTO: 'AUTO',
+    Scale: {
+      RESIZE: 'RESIZE',
+      CENTER_BOTH: 'CENTER_BOTH',
+      Events: {
+        RESIZE: 'resize',
+      },
+    },
+    Scene: class Scene {
+      constructor(config) {
+        this.sys = { settings: config || {} };
+        this.scale = createScaleStub(64, 64);
+        this.cameras = {
+          main: {
+            width: 64,
+            height: 64,
+            backgroundColor: null,
+            setBackgroundColor: (value) => {
+              this.cameras.main.backgroundColor = value;
+              return this.cameras.main;
+            },
+          },
+          resize: (width, height) => {
+            this.cameras.main.width = width;
+            this.cameras.main.height = height;
+          },
+        };
+        this.add = {
+          rectangle: (x, y, width, height, fillStyle) => {
+            const object = createDisplayObject(x, y);
+            object.width = width;
+            object.height = height;
+            object.fillStyle = fillStyle;
+            return object;
+          },
+          text: (x, y, text) => {
+            const object = createDisplayObject(x, y);
+            object.text = text;
+            return object;
+          },
+          circle: (x, y, radius, fillStyle) => {
+            const object = createDisplayObject(x, y);
+            object.radius = radius;
+            object.fillStyle = fillStyle;
+            return object;
+          },
+          ellipse: (x, y, width, height, fillStyle) => {
+            const object = createDisplayObject(x, y);
+            object.width = width;
+            object.height = height;
+            object.fillStyle = fillStyle;
+            return object;
+          },
+          triangle: (x, y, x1, y1, x2, y2, x3, y3, fillStyle) => {
+            const object = createDisplayObject(x, y);
+            object.points = [x1, y1, x2, y2, x3, y3];
+            object.fillStyle = fillStyle;
+            return object;
+          },
+          container: (x, y, list = []) => {
+            const object = createDisplayObject(x, y);
+            object.list = list;
+            object.add = (child) => {
+              if (Array.isArray(child)) {
+                object.list.push(...child);
+              } else {
+                object.list.push(child);
+              }
+              return object;
+            };
+            return object;
+          },
+        };
+        this.time = {
+          delayedCall() {
+            return null;
+          },
+        };
+        this.tweens = {
+          add(config) {
+            return {
+              ...config,
+              stop() {},
+            };
+          },
+          killTweensOf() {},
+        };
+      }
+    },
+  };
+
+  const phaserModuleStub = {
+    __esModule: true,
+    default: phaserStub,
+    ...phaserStub,
+  };
+
+  const originalLoadAg14 = ModuleAg14._load;
+  ModuleAg14._load = function patchedLoad(request, parent, isMain) {
+    if (request === 'phaser') {
+      return phaserModuleStub;
+    }
+    return originalLoadAg14.call(this, request, parent, isMain);
+  };
+
+  let GardenSceneAg14;
+  try {
+    delete require.cache[require.resolve('./test-build/renderer/game/scenes/GardenScene')];
+    ({ GardenScene: GardenSceneAg14 } = require('./test-build/renderer/game/scenes/GardenScene'));
+  } finally {
+    ModuleAg14._load = originalLoadAg14;
+  }
+
+  const resizeScene = new GardenSceneAg14();
+  resizeScene.create();
+
+  assert(resizeScene.groundTiles.length === 4, 'Scene creates initial ground tiles for the starting size');
+  assert(resizeScene.titleText.x === 32 && resizeScene.titleText.y === 52, 'Title starts centered at the bottom edge');
+
+  resizeScene.scale.width = 96;
+  resizeScene.scale.height = 96;
+  resizeScene.cameras.main.width = 96;
+  resizeScene.cameras.main.height = 96;
+  resizeScene.scale.emit('resize', { width: 96, height: 96 }, { width: 96, height: 96 });
+
+  assert(resizeScene.groundTiles.length === 9, 'Scene rebuilds ground tiles after resize');
+  assert(resizeScene.titleText.x === 48 && resizeScene.titleText.y === 84, 'Title repositions after resize');
+
+  resizeScene.restorePlants([
+    { filename: 'server.ts', x: 20, y: 40, zone: 'backend', createdAt: 1 },
+  ]);
+  const plantBeforeResize = resizeScene.plantMap.get('server.ts');
+  resizeScene.scale.width = 128;
+  resizeScene.scale.height = 128;
+  resizeScene.cameras.main.width = 128;
+  resizeScene.cameras.main.height = 128;
+  resizeScene.scale.emit('resize', { width: 128, height: 128 }, { width: 128, height: 128 });
+  const plantAfterResize = resizeScene.plantMap.get('server.ts');
+
+  assert(plantAfterResize !== undefined, 'Plants are still present after resize rebuild');
+  assert(plantAfterResize !== plantBeforeResize, 'Resize rebuilds plant display objects from plant state');
+
+  // ============================================================
+  // AG-14: Garden Renderer Stability
+  // ============================================================
+  section('AG-14: Garden Renderer Stability');
+
+  const ModuleAg14Renderer = require('module');
+
+  const phaserGameStub = {
+    AUTO: 'AUTO',
+    CANVAS: 'CANVAS',
+    WEBGL: 'WEBGL',
+    Scale: {
+      RESIZE: 'RESIZE',
+      CENTER_BOTH: 'CENTER_BOTH',
+    },
+    Game: class Game {
+      constructor(config) {
+        this.config = config;
+        this.events = {
+          on() {},
+        };
+        this.scene = {
+          getScene() {
+            return null;
+          },
+        };
+      }
+      destroy() {}
+    },
+  };
+
+  const phaserGameModuleStub = {
+    __esModule: true,
+    default: phaserGameStub,
+    ...phaserGameStub,
+  };
+
+  const originalLoadAg14Renderer = ModuleAg14Renderer._load;
+  ModuleAg14Renderer._load = function patchedLoad(request, parent, isMain) {
+    if (request === 'phaser') {
+      return phaserGameModuleStub;
+    }
+    return originalLoadAg14Renderer.call(this, request, parent, isMain);
+  };
+
+  let GardenGameAg14;
+  try {
+    delete require.cache[require.resolve('./test-build/renderer/game/GardenGame')];
+    ({ GardenGame: GardenGameAg14 } = require('./test-build/renderer/game/GardenGame'));
+  } finally {
+    ModuleAg14Renderer._load = originalLoadAg14Renderer;
+  }
+
+  const gameContainer = { clientWidth: 320, clientHeight: 240 };
+  const gardenGame = new GardenGameAg14(gameContainer);
+  assert(gardenGame.game.config.type === 'CANVAS', 'GardenGame prefers the Canvas renderer for restore stability');
+
+  // ============================================================
   // Phase 1-2: Filename inference
   // ============================================================
   section('Phase 1-2: Filename inference');

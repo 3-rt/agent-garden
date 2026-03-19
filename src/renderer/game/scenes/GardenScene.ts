@@ -30,7 +30,7 @@ export class GardenScene extends Phaser.Scene {
   // Phase 4 systems
   private timeLapse = new TimeLapse();
   private themeManager = new ThemeManager();
-  private groundTiles: Phaser.GameObjects.Image[] = [];
+  private groundTiles: Phaser.GameObjects.Rectangle[] = [];
   private titleText!: Phaser.GameObjects.Text;
 
   private snapshotInterval = 10_000; // snapshot every 10s
@@ -44,21 +44,7 @@ export class GardenScene extends Phaser.Scene {
 
   create() {
     try {
-      // Use cameras.main for reliable dimensions with Scale.RESIZE
-      const cam = this.cameras.main;
-      const width = cam.width || this.scale.width || 800;
-      const height = cam.height || this.scale.height || 600;
-      const theme = this.themeManager.current;
-      const TILE_SIZE = 32;
-
-      // Draw a simple field background
-      for (let x = 0; x < width; x += TILE_SIZE) {
-        for (let y = 0; y < height; y += TILE_SIZE) {
-          const tile = this.add.rectangle(x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, theme.groundLight)
-            .setDepth(0);
-          this.groundTiles.push(tile as any);
-        }
-      }
+      const { width, height } = this.getSceneSize();
 
       // Initialize zone plant slot counters
       for (const key of Object.keys(ZONE_LAYOUT)) {
@@ -66,13 +52,17 @@ export class GardenScene extends Phaser.Scene {
       }
 
       // Title
-      this.titleText = this.add.text(width / 2, height - 12, 'Agent Garden', {
+      this.titleText = this.add.text(0, 0, 'Agent Garden', {
         fontSize: '10px',
-        color: theme.titleColor,
+        color: this.themeManager.current.titleColor,
         fontFamily: 'monospace',
       }).setOrigin(0.5).setDepth(20);
 
+      this.layoutScene(width, height);
+
       // No default agents — they appear dynamically from Claude Code sessions
+
+      this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
 
       // Theme change listener
       this.themeManager.onChange((t) => this.applyTheme(t));
@@ -399,7 +389,7 @@ export class GardenScene extends Phaser.Scene {
 
   private applyTheme(theme: GardenTheme) {
     for (const tile of this.groundTiles) {
-      (tile as unknown as Phaser.GameObjects.Rectangle).setFillStyle(theme.groundLight);
+      tile.setFillStyle(theme.groundLight);
     }
 
     // Title
@@ -544,6 +534,60 @@ export class GardenScene extends Phaser.Scene {
       directory: key.slice(0, separatorIndex),
       filename: key.slice(separatorIndex + 1),
     };
+  }
+
+  private getSceneSize(): { width: number; height: number } {
+    const cam = this.cameras.main;
+    return {
+      width: cam.width || this.scale.width || 800,
+      height: cam.height || this.scale.height || 600,
+    };
+  }
+
+  private handleResize(gameSize: Phaser.Structs.Size) {
+    const width = gameSize.width || this.scale.width || this.cameras.main.width || 800;
+    const height = gameSize.height || this.scale.height || this.cameras.main.height || 600;
+    this.layoutScene(width, height);
+  }
+
+  private layoutScene(width: number, height: number) {
+    this.cameras.resize(width, height);
+    this.rebuildGround(width, height);
+    this.titleText.setPosition(width / 2, height - 12);
+    this.cameras.main.setBackgroundColor(this.themeManager.current.backgroundColor);
+
+    // Rebuild plants from source state after resize/restore so any distorted
+    // display-object transforms from the renderer lifecycle are discarded.
+    if (this.plantPositions.size > 0) {
+      this.rebuildPlantDisplay();
+    }
+
+    if (this.activeDirectories.size > 1) {
+      this.refreshDirectoryLabels();
+    }
+  }
+
+  private rebuildGround(width: number, height: number) {
+    for (const tile of this.groundTiles) {
+      tile.destroy();
+    }
+    this.groundTiles = [];
+
+    const theme = this.themeManager.current;
+    const tileSize = 32;
+
+    for (let x = 0; x < width; x += tileSize) {
+      for (let y = 0; y < height; y += tileSize) {
+        const tile = this.add.rectangle(
+          x + tileSize / 2,
+          y + tileSize / 2,
+          tileSize,
+          tileSize,
+          theme.groundLight,
+        ).setDepth(0);
+        this.groundTiles.push(tile);
+      }
+    }
   }
 
   private rebuildPlantDisplay(animatedRawKeys: Set<string> = new Set()) {
