@@ -697,6 +697,120 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(overflowPlant.bedId !== 'bed-backend-center', 'Overflow file moves into the new outer bed');
   assert(resizeScene.bedMap.size === 2, 'GardenScene renders backgrounds for expanded beds');
 
+  const singleBedLayout = {
+    beds: [{
+      id: 'bed-frontend-single',
+      zone: 'frontend',
+      x: 64,
+      y: 64,
+      width: 80,
+      height: 60,
+      rank: 0,
+      capacity: 4,
+      directoryGroups: ['src/app'],
+      plantKeys: ['src/app/page.tsx'],
+    }],
+    plants: [{
+      filename: 'src/app/page.tsx',
+      x: 42,
+      y: 42,
+      zone: 'frontend',
+      createdAt: 3,
+      bedId: 'bed-frontend-single',
+      growthScale: 1.2,
+    }],
+  };
+  resizeScene.restoreGardenLayout(singleBedLayout);
+  const singleBedPlant = Array.from(resizeScene.plantMap.values())[0];
+  assert(singleBedPlant.y > singleBedLayout.beds[0].y, 'Single bed-backed plants anchor from the lower half of their bed');
+
+  const mergedBedLayout = {
+    beds: [{
+      id: 'bed-backend-merged',
+      zone: 'backend',
+      x: 64,
+      y: 64,
+      width: 80,
+      height: 60,
+      rank: 0,
+      capacity: 30,
+      directoryGroups: ['src/main/services'],
+      plantKeys: Array.from({ length: 24 }, (_, index) => `src/main/services/file-${index}.ts`),
+    }],
+    plants: Array.from({ length: 24 }, (_, index) => ({
+      filename: `src/main/services/file-${index}.ts`,
+      x: 40 + (index % 4) * 4,
+      y: 40 + Math.floor(index / 4) * 2,
+      zone: 'backend',
+      createdAt: 3,
+      bedId: 'bed-backend-merged',
+      growthScale: 2.8,
+    })),
+  };
+  resizeScene.restoreGardenLayout(mergedBedLayout);
+  assert(resizeScene.plantMap.size === 1, 'GardenScene merges dense bed-backed file groups into one visible plant');
+  const mergedBedPlant = Array.from(resizeScene.plantMap.values())[0];
+  const mergedStem = mergedBedPlant.list[0];
+  assert(mergedBedPlant.y > mergedBedLayout.beds[0].y, 'Merged bed-backed plants anchor from the lower half of their bed');
+  assert(mergedStem.height < mergedBedLayout.beds[0].height, 'Merged bed-backed plant height stays within the bed footprint');
+
+  const splitMergedBedLayout = {
+    beds: [
+      {
+        id: 'bed-backend-left',
+        zone: 'backend',
+        x: 40,
+        y: 64,
+        width: 60,
+        height: 60,
+        rank: 0,
+        capacity: 20,
+        directoryGroups: ['src/main/services'],
+        plantKeys: Array.from({ length: 12 }, (_, index) => `src/main/services/left-${index}.ts`),
+      },
+      {
+        id: 'bed-backend-right',
+        zone: 'backend',
+        x: 88,
+        y: 64,
+        width: 60,
+        height: 60,
+        rank: 1,
+        capacity: 20,
+        directoryGroups: ['src/main/services'],
+        plantKeys: Array.from({ length: 12 }, (_, index) => `src/main/services/right-${index}.ts`),
+      },
+    ],
+    plants: [
+      ...Array.from({ length: 12 }, (_, index) => ({
+        filename: `src/main/services/left-${index}.ts`,
+        x: 30 + (index % 3) * 4,
+        y: 44 + Math.floor(index / 3) * 2,
+        zone: 'backend',
+        createdAt: 4,
+        bedId: 'bed-backend-left',
+        growthScale: 1.8,
+      })),
+      ...Array.from({ length: 12 }, (_, index) => ({
+        filename: `src/main/services/right-${index}.ts`,
+        x: 82 + (index % 3) * 2,
+        y: 44 + Math.floor(index / 3) * 2,
+        zone: 'backend',
+        createdAt: 4,
+        bedId: 'bed-backend-right',
+        growthScale: 1.8,
+      })),
+    ],
+  };
+  resizeScene.restoreGardenLayout(splitMergedBedLayout);
+  const splitMergedPlants = Array.from(resizeScene.plantMap.values());
+  assert(splitMergedPlants.length === 2, 'GardenScene keeps merged display plants split per bed');
+  assert(
+    Math.min(...splitMergedPlants.map((plant) => plant.x)) < 50 &&
+      Math.max(...splitMergedPlants.map((plant) => plant.x)) > 78,
+    'GardenScene keeps split merged plants anchored to separate bed positions',
+  );
+
   // ============================================================
   // AG-14: Garden Renderer Stability
   // ============================================================

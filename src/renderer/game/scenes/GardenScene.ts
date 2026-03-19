@@ -672,6 +672,7 @@ export class GardenScene extends Phaser.Scene {
         y: pos.y,
         zone: pos.zone,
         createdAt: pos.createdAt,
+        bedId: pos.bedId,
         directory: pos.directory,
         creatorRole: pos.creatorRole,
         growthScale: pos.growthScale,
@@ -700,9 +701,10 @@ export class GardenScene extends Phaser.Scene {
             plant.directory === displayPlant.directory,
           );
 
+      const placement = this.getBedPlantPlacement(displayPlant);
       const container = displayPlant.kind === 'merged'
         ? this.growMergedPlant(displayPlant, shouldAnimate)
-        : this.growPlant(displayPlant.x, displayPlant.y, displayPlant.filename || displayPlant.label, displayPlant.creatorRole, displayPlant.growthScale, shouldAnimate);
+        : this.growPlant(placement.x, placement.y, displayPlant.filename || displayPlant.label, displayPlant.creatorRole, displayPlant.growthScale, shouldAnimate);
 
       this.plantMap.set(displayPlant.id, container);
 
@@ -716,7 +718,7 @@ export class GardenScene extends Phaser.Scene {
       }
 
       if (shouldAnimate) {
-        this.emitParticles(displayPlant.x, displayPlant.y);
+        this.emitParticles(container.x, container.y);
       }
     }
   }
@@ -969,9 +971,9 @@ export class GardenScene extends Phaser.Scene {
   }
 
   private growMergedPlant(displayPlant: DisplayPlant, animate: boolean): Phaser.GameObjects.Container {
+    const { x, y, targetHeight } = this.getMergedPlantPlacement(displayPlant);
     const stem = this.add.rectangle(0, 0, 10, 0, 0x6d4c41).setOrigin(0.5, 1);
-    const container = this.add.container(displayPlant.x, displayPlant.y, [stem]);
-    const targetHeight = Math.round((34 + Math.min(26, displayPlant.fileCount * 4)) * (displayPlant.growthScale || 1));
+    const container = this.add.container(x, y, [stem]);
 
     if (animate) {
       this.tweens.add({
@@ -1031,6 +1033,48 @@ export class GardenScene extends Phaser.Scene {
     }
 
     return container;
+  }
+
+  private getBedPlantPlacement(displayPlant: Pick<DisplayPlant, 'x' | 'y' | 'bedId'>): { bed?: GardenBedState; x: number; y: number } {
+    const bed = displayPlant.bedId
+      ? this.gardenBeds.find((candidate) => candidate.id === displayPlant.bedId)
+      : undefined;
+
+    if (!bed) {
+      return {
+        x: displayPlant.x,
+        y: displayPlant.y,
+      };
+    }
+
+    const innerLeft = bed.x - bed.width / 2 + 14;
+    const innerRight = bed.x + bed.width / 2 - 14;
+    const soilInset = Math.max(12, Math.round(bed.height * 0.18));
+    return {
+      bed,
+      x: Math.round(Math.min(innerRight, Math.max(innerLeft, displayPlant.x))),
+      y: Math.round(bed.y + bed.height / 2 - soilInset),
+    };
+  }
+
+  private getMergedPlantPlacement(displayPlant: DisplayPlant): { x: number; y: number; targetHeight: number } {
+    const baseHeight = Math.round((34 + Math.min(26, displayPlant.fileCount * 4)) * (displayPlant.growthScale || 1));
+    const placement = this.getBedPlantPlacement(displayPlant);
+    const bed = placement.bed;
+
+    if (!bed) {
+      return {
+        x: placement.x,
+        y: placement.y,
+        targetHeight: baseHeight,
+      };
+    }
+
+    return {
+      x: placement.x,
+      y: placement.y,
+      targetHeight: Math.min(baseHeight, Math.max(28, Math.round(bed.height * 0.58))),
+    };
   }
 
   private getPlantStyle(ext: string): { stemColor: number; topColor: number; topShape: string } {

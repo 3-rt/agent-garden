@@ -311,6 +311,7 @@ export function groupPlantsForDisplay(
         id: plant.directory ? `${plant.directory}:${plant.filename}` : plant.filename,
         kind: 'single',
         zone: plant.zone,
+        bedId: plant.bedId,
         x: plant.x,
         y: plant.y,
         label: plant.filename,
