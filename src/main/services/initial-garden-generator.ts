@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import * as path from 'path';
 import type { PlantState } from '../../shared/types';
+import { assignGroupsToBeds, buildZoneBeds, type BedLayoutGroup } from '../../shared/garden-bed-layout';
 
 const MAX_GENERATED_FILES = 250;
 const CANVAS_WIDTH = 1200;
@@ -156,6 +157,12 @@ function compareScannedFiles(a: ScannedFile, b: ScannedFile): number {
   );
 }
 
+function scoreDirectoryGroup(files: ScannedFile[]): number {
+  const importanceTotal = files.reduce((sum, file) => sum + file.importanceScore, 0);
+  const growthTotal = files.reduce((sum, file) => sum + file.growthScale, 0);
+  return importanceTotal * 10 + growthTotal * 6 + files.length * 8;
+}
+
 function layoutZone(zoneFiles: ScannedFile[], zone: string, createdAt: number): PlantState[] {
   const zoneLayout: Record<string, { x: number; width: number }> = {
     frontend: { x: 0, width: 0.33 },
@@ -174,38 +181,31 @@ function layoutZone(zoneFiles: ScannedFile[], zone: string, createdAt: number): 
     filesByDirectory.set(file.directoryGroup, group);
   }
 
-  const directoryGroups = Array.from(filesByDirectory.keys()).sort((a, b) => {
-    const aMax = Math.max(...(filesByDirectory.get(a) || []).map((f) => f.importanceScore));
-    const bMax = Math.max(...(filesByDirectory.get(b) || []).map((f) => f.importanceScore));
-    return bMax - aMax || a.localeCompare(b);
+  const beds = buildZoneBeds({
+    zone: zone as 'frontend' | 'backend' | 'tests',
+    fileCount: zoneFiles.length,
+    zoneStart,
+    zoneWidth,
+    centerY: CANVAS_HEIGHT / 2,
   });
-
-  const plants: PlantState[] = [];
-
-  directoryGroups.forEach((directoryGroup, groupIndex) => {
-    const files = (filesByDirectory.get(directoryGroup) || []).sort(compareScannedFiles);
-    const clusterCenterX = zoneStart + ((groupIndex + 0.5) / Math.max(directoryGroups.length, 1)) * zoneWidth;
-    const clusterWidth = Math.min(90, zoneWidth / Math.max(directoryGroups.length, 1) - 10);
-
-    files.forEach((file, fileIndex) => {
-      const offsetIndex = fileIndex - (files.length - 1) / 2;
-      const clampedOffset = Math.max(-clusterWidth / 2, Math.min(clusterWidth / 2, offsetIndex * 18));
-      const above = fileIndex % 2 === 0;
-      const yBase = above ? CANVAS_HEIGHT / 2 - 72 : CANVAS_HEIGHT / 2 + 72;
-      const y = yBase + (above ? -1 : 1) * Math.min(28, Math.floor(fileIndex / 2) * 12);
-
-      plants.push({
+  const groups: BedLayoutGroup[] = Array.from(filesByDirectory.entries()).map(([directoryGroup, files]) => ({
+    groupPath: directoryGroup,
+    signalScore: scoreDirectoryGroup(files),
+    files: [...files]
+      .sort(compareScannedFiles)
+      .map((file) => ({
         filename: file.relativePath,
-        x: Math.round(clusterCenterX + clampedOffset),
-        y: Math.round(y),
         zone,
-        createdAt,
         growthScale: file.growthScale,
-      });
-    });
-  });
+        importanceScore: file.importanceScore,
+      })),
+  }));
 
-  return plants;
+  return assignGroupsToBeds({
+    beds,
+    groups,
+    createdAt,
+  }).plants;
 }
 
 export function generateInitialGarden(rootDir: string): PlantState[] {

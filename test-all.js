@@ -1208,6 +1208,146 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   // ============================================================
   // AG-10: Initial Garden Generation
   // ============================================================
+  section('Garden Bed Layout');
+
+  const {
+    deriveBedCount,
+    buildZoneBeds,
+    assignGroupsToBeds,
+    scatterPlantsInBed,
+  } = require('./test-build/shared/garden-bed-layout');
+
+  assert(deriveBedCount(0) === 0, 'No files produce no beds');
+  assert(deriveBedCount(4) === 1, 'Small zones produce one bed');
+  assert(deriveBedCount(9) === 2, 'Medium zones produce two beds');
+  assert(deriveBedCount(18) === 4, 'Large zones produce four beds');
+
+  const frontendBeds = buildZoneBeds({
+    zone: 'frontend',
+    fileCount: 12,
+    zoneStart: 0,
+    zoneWidth: 360,
+    centerY: 200,
+  });
+  assert(frontendBeds.length === 3, 'Twelve files produce three frontend beds');
+  const zoneCenterX = 180;
+  const closestFrontendBed = frontendBeds.reduce((best, bed) => (
+    Math.abs(bed.x - zoneCenterX) < Math.abs(best.x - zoneCenterX) ? bed : best
+  ), frontendBeds[0]);
+  assert(closestFrontendBed.rank === 0, 'Most central bed gets top priority rank');
+
+  const assignmentBeds = [
+    {
+      id: 'bed-center',
+      zone: 'backend',
+      x: 200,
+      y: 200,
+      width: 120,
+      height: 90,
+      rank: 0,
+      capacity: 4,
+      directoryGroups: [],
+      plantKeys: [],
+    },
+    {
+      id: 'bed-outer',
+      zone: 'backend',
+      x: 320,
+      y: 200,
+      width: 120,
+      height: 90,
+      rank: 1,
+      capacity: 4,
+      directoryGroups: [],
+      plantKeys: [],
+    },
+  ];
+
+  const assignmentLayout = assignGroupsToBeds({
+    beds: assignmentBeds,
+    groups: [
+      {
+        groupPath: 'src/main/services',
+        signalScore: 80,
+        files: [
+          { filename: 'src/main/services/a.ts', zone: 'backend', growthScale: 1.6 },
+          { filename: 'src/main/services/b.ts', zone: 'backend', growthScale: 1.4 },
+        ],
+      },
+      {
+        groupPath: 'src/main/lib',
+        signalScore: 20,
+        files: [
+          { filename: 'src/main/lib/c.ts', zone: 'backend', growthScale: 1.1 },
+        ],
+      },
+    ],
+    createdAt: 1234,
+  });
+  const centerBed = assignmentLayout.beds.find((bed) => bed.id === 'bed-center');
+  const servicesPlants = assignmentLayout.plants.filter((plant) => plant.filename.includes('/services/'));
+  assert(centerBed.directoryGroups.includes('src/main/services'), 'Highest-signal group claims center bed');
+  assert(new Set(servicesPlants.map((plant) => plant.bedId)).size === 1, 'Directory group stays together when capacity allows');
+  assert(servicesPlants[0].bedId === 'bed-center', 'Highest-signal group lands in the center bed');
+
+  const overflowLayout = assignGroupsToBeds({
+    beds: [
+      { ...assignmentBeds[0], capacity: 2, directoryGroups: [], plantKeys: [] },
+      { ...assignmentBeds[1], capacity: 2, directoryGroups: [], plantKeys: [] },
+    ],
+    groups: [
+      {
+        groupPath: 'src/main/services',
+        signalScore: 80,
+        files: [
+          { filename: 'src/main/services/a.ts', zone: 'backend', growthScale: 1.6 },
+          { filename: 'src/main/services/b.ts', zone: 'backend', growthScale: 1.5 },
+          { filename: 'src/main/services/c.ts', zone: 'backend', growthScale: 1.4 },
+        ],
+      },
+    ],
+    createdAt: 5678,
+  });
+  assert(new Set(overflowLayout.plants.map((plant) => plant.bedId)).size === 2, 'Oversized directory group spills into an outer bed');
+
+  const scatterBed = {
+    id: 'bed-scatter',
+    zone: 'tests',
+    x: 500,
+    y: 220,
+    width: 140,
+    height: 100,
+    rank: 0,
+    capacity: 4,
+    directoryGroups: [],
+    plantKeys: [],
+  };
+  const scatteredPlants = scatterPlantsInBed({
+    bed: scatterBed,
+    files: [
+      { filename: 'src/tests/a.test.ts', zone: 'tests', growthScale: 1.2 },
+      { filename: 'src/tests/b.test.ts', zone: 'tests', growthScale: 1.1 },
+      { filename: 'src/tests/c.test.ts', zone: 'tests', growthScale: 1.0 },
+    ],
+    createdAt: 2468,
+  });
+  assert(scatteredPlants.every((plant) =>
+    plant.x >= scatterBed.x - scatterBed.width / 2 + 12 &&
+    plant.x <= scatterBed.x + scatterBed.width / 2 - 12 &&
+    plant.y >= scatterBed.y - scatterBed.height / 2 + 12 &&
+    plant.y <= scatterBed.y + scatterBed.height / 2 - 12
+  ), 'Scatter placement keeps plants inside padded bed bounds');
+  assert(scatteredPlants.every((plant, index) =>
+    scatteredPlants.slice(index + 1).every((other) => {
+      const dx = plant.x - other.x;
+      const dy = plant.y - other.y;
+      return Math.sqrt(dx * dx + dy * dy) >= 18;
+    })
+  ), 'Scatter placement preserves minimum spacing inside a bed');
+
+  // ============================================================
+  // AG-10: Initial Garden Generation
+  // ============================================================
   section('AG-10: Initial Garden Generation');
 
   const osAg10 = require('os');
