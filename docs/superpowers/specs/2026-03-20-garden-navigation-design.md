@@ -59,7 +59,7 @@ Allows looking around without walking the character:
 
 Fixed-position HUD overlay in the bottom-right corner showing the full garden at miniature scale.
 
-**Implementation:** Use a `Phaser.GameObjects.RenderTexture` that snapshots a simplified view of the garden, updated every ~500ms or on camera move. This avoids the performance cost of a second Phaser camera rendering all game objects again (expensive in Canvas mode).
+**Implementation:** Use a `Phaser.GameObjects.Container` with simplified Graphics primitives (colored rectangles for beds, arc for player dot, rectangle outline for viewport). This is simpler than RenderTexture and avoids the performance cost of a second Phaser camera. Container uses `setScrollFactor(0)` to stay fixed to the viewport.
 
 - Size: ~200x150px, semi-transparent background
 - Renders simplified representation: colored rectangles for zone backgrounds and beds (drawn directly to the RenderTexture, not using scene game objects)
