@@ -10,6 +10,10 @@ export interface GardenTheme {
   labelColor: string;
   titleColor: string;
   dividerColor: number;
+  soilFill: number;
+  soilBorder: number;
+  soilDots: number;
+  soilShadow: number;
 }
 
 const THEMES: Record<string, GardenTheme> = {
@@ -25,6 +29,10 @@ const THEMES: Record<string, GardenTheme> = {
     labelColor: '#c8e6c9',
     titleColor: '#7cb342',
     dividerColor: 0x4a7c59,
+    soilFill: 0x5a3a1a,
+    soilBorder: 0x8b6914,
+    soilDots: 0x7a5a2a,
+    soilShadow: 0x3a2510,
   },
   desert: {
     id: 'desert',
@@ -38,6 +46,10 @@ const THEMES: Record<string, GardenTheme> = {
     labelColor: '#f5deb3',
     titleColor: '#daa520',
     dividerColor: 0x9e8c6c,
+    soilFill: 0xb89b3e,
+    soilBorder: 0xd4b84a,
+    soilDots: 0xc8ab4e,
+    soilShadow: 0x8a7530,
   },
   zen: {
     id: 'zen',
@@ -51,6 +63,10 @@ const THEMES: Record<string, GardenTheme> = {
     labelColor: '#4a4a4a',
     titleColor: '#5c7a5a',
     dividerColor: 0xb0a898,
+    soilFill: 0x8a8278,
+    soilBorder: 0xb0a898,
+    soilDots: 0x9a9288,
+    soilShadow: 0x6a6258,
   },
   underwater: {
     id: 'underwater',
@@ -64,6 +80,10 @@ const THEMES: Record<string, GardenTheme> = {
     labelColor: '#b2ebf2',
     titleColor: '#4dd0e1',
     dividerColor: 0x2a8a9a,
+    soilFill: 0x1a3a4e,
+    soilBorder: 0x2a5a6e,
+    soilDots: 0x2a4a5e,
+    soilShadow: 0x0a2a3e,
   },
   space: {
     id: 'space',
@@ -77,6 +97,10 @@ const THEMES: Record<string, GardenTheme> = {
     labelColor: '#b0bec5',
     titleColor: '#7c4dff',
     dividerColor: 0x3a3a5e,
+    soilFill: 0x2a2a3e,
+    soilBorder: 0x4a4a6e,
+    soilDots: 0x3a3a4e,
+    soilShadow: 0x1a1a2e,
   },
 };
 
