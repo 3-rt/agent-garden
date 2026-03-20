@@ -32,7 +32,7 @@ Two-process Electron model:
 - TypeScript strict mode, all layers
 - No test framework — plain `assert()` in `test-all.js`
 - Phaser 3 requires `'unsafe-eval'` in CSP (`index.html`)
-- Phaser runs in Canvas mode; `GardenScene` rebuilds static chrome and rendered plants on resize/restore for Electron stability
+- Phaser runs in Canvas mode with HiDPI support (`Scale.NONE` + `dpr` camera zoom); `GardenScene` rebuilds static chrome and rendered plants on resize/restore for Electron stability
 - Garden layout persists both per-file plant state and per-zone bed state
 - Ground rendering uses colored rectangles (not sprite tiles)
 - State is distributed: main process (services), React (useState), Phaser (game objects)

@@ -2,31 +2,51 @@ import Phaser from 'phaser';
 import { GardenScene } from './scenes/GardenScene';
 import type { GardenLayoutState, PlantState, AgentRole } from '../../shared/types';
 
+import { GAME_DPR } from './dpr';
+
 export class GardenGame {
   private game!: Phaser.Game;
   private scene: GardenScene | null = null;
   private sceneReadyPromise: Promise<void>;
+  private resizeObserver?: ResizeObserver;
 
   constructor(container: HTMLElement) {
-    const w = container.clientWidth || 800;
-    const h = container.clientHeight || 600;
+    const cssW = container.clientWidth || 800;
+    const cssH = container.clientHeight || 600;
 
     this.sceneReadyPromise = new Promise<void>((resolve) => {
       this.game = new Phaser.Game({
         type: Phaser.CANVAS,
         parent: container,
-        width: w,
-        height: h,
+        width: cssW * GAME_DPR,
+        height: cssH * GAME_DPR,
         backgroundColor: '#2d5a27',
-        pixelArt: true,
+        antialias: true,
         scene: GardenScene,
         scale: {
-          mode: Phaser.Scale.RESIZE,
-          autoCenter: Phaser.Scale.CENTER_BOTH,
+          mode: Phaser.Scale.NONE,
         },
       });
 
       this.game.events.on('ready', () => {
+        // CSS-scale canvas to fill container; internal resolution stays at dpr-scaled size
+        const canvas = this.game.canvas;
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+
+        // Observe container resizes and update internal resolution
+        if (typeof ResizeObserver !== 'undefined') {
+          this.resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+              const { width, height } = entry.contentRect;
+              if (width > 0 && height > 0) {
+                this.game.scale.resize(width * GAME_DPR, height * GAME_DPR);
+              }
+            }
+          });
+          this.resizeObserver.observe(container);
+        }
+
         const scene = this.game.scene.getScene('GardenScene') as GardenScene;
         if (scene.scene.isActive()) {
           // Scene already created (no assets to preload)
@@ -130,6 +150,9 @@ export class GardenGame {
   }
 
   destroy() {
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+    }
     this.game.destroy(true);
   }
 }

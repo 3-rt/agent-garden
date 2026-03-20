@@ -15,6 +15,7 @@ Hard-won lessons from building this project. Claude reads this every session.
 - For HUD/UI elements (minimap, etc.) that must stay fixed on screen regardless of camera zoom/scroll, use a dedicated UI camera (`scene.cameras.add`) with its own viewport — `setScrollFactor(0)` still gets affected by zoom, and world-space repositioning shakes during zoom lerp
 - Place UI camera objects at a far-off offset (e.g. 100000, 100000) so the main camera never renders them; use `cam.ignore()` as an extra safeguard
 - World bounds must be recomputed after any operation that adds/restores garden beds (restoreGardenLayout, addOverflowBed) — otherwise player movement stays clamped to the old smaller bounds
+- HiDPI/Retina rendering: Phaser 3 Canvas doesn't auto-scale for devicePixelRatio. Use `Scale.NONE` with canvas at `css * dpr` resolution, CSS-scale it back via `style.width/height: 100%`, set camera zoom to `dpr`, and use ResizeObserver for resize. All game coordinates stay in CSS pixels; only camera viewport, UI camera positions, and pointer coords need dpr conversion. DPR constant lives in `src/renderer/game/dpr.ts` to avoid circular imports.
 
 ## Electron IPC
 

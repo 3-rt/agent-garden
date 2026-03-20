@@ -5,6 +5,7 @@ import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
 import { CameraController } from '../systems/CameraController';
 import { PlayerCharacter } from '../systems/PlayerCharacter';
 import { Minimap } from '../systems/Minimap';
+import { GAME_DPR } from '../dpr';
 import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
 import { buildZoneBeds, scatterPlantsInBed, computeWorldBounds } from '../../../shared/garden-bed-layout';
 import type { AgentRole, GardenBedState, GardenLayoutState, PlantState } from '../../../shared/types';
@@ -84,7 +85,7 @@ export class GardenScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(20);
 
       this.layoutScene(width, height);
-      this.cameraController = new CameraController(this);
+      this.cameraController = new CameraController(this, GAME_DPR);
       this.playerCharacter = new PlayerCharacter(
         this,
         this.worldWidth / 2,
@@ -643,9 +644,12 @@ export class GardenScene extends Phaser.Scene {
 
   private getSceneSize(): { width: number; height: number } {
     const cam = this.cameras.main;
+    const rawW = cam.width || this.scale.width || 800;
+    const rawH = cam.height || this.scale.height || 600;
+    // Convert from canvas pixels to CSS/logical pixels
     return {
-      width: cam.width || this.scale.width || 800,
-      height: cam.height || this.scale.height || 600,
+      width: rawW / GAME_DPR,
+      height: rawH / GAME_DPR,
     };
   }
 
@@ -673,7 +677,7 @@ export class GardenScene extends Phaser.Scene {
     }
 
     const cam = this.cameras.main;
-    cam.setViewport(0, 0, viewportWidth, viewportHeight);
+    cam.setViewport(0, 0, viewportWidth * GAME_DPR, viewportHeight * GAME_DPR);
     cam.setBackgroundColor(this.themeManager.current.backgroundColor);
 
     this.rebuildGround();
@@ -691,8 +695,8 @@ export class GardenScene extends Phaser.Scene {
 
   private recomputeWorldBounds() {
     const cam = this.cameras.main;
-    const viewportWidth = cam.width || 800;
-    const viewportHeight = cam.height || 600;
+    const viewportWidth = (cam.width || 800) / GAME_DPR;
+    const viewportHeight = (cam.height || 600) / GAME_DPR;
     const bounds = computeWorldBounds({
       beds: this.gardenBeds,
       minWidth: viewportWidth,

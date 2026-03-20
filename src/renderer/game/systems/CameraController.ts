@@ -10,23 +10,29 @@ export class CameraController {
   private cameraStartX = 0;
   private cameraStartY = 0;
 
-  private readonly minZoom = 0.5;
-  private readonly maxZoom = 2.0;
-  private readonly zoomStep = 0.1;
+  private readonly dpr: number;
+  private readonly minZoom: number;
+  private readonly maxZoom: number;
+  private readonly zoomStep: number;
   private readonly followLerp = 0.1;
   private readonly zoomLerp = 0.15;
 
-  private targetZoom = 1.0;
+  private targetZoom: number;
 
   private wheelHandler: Function;
   private pointerDownHandler: Function;
   private pointerMoveHandler: Function;
   private pointerUpHandler: Function;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, dpr = 1) {
     this.scene = scene;
     this.camera = scene.cameras.main;
-    this.targetZoom = this.camera.zoom;
+    this.dpr = dpr;
+    this.minZoom = 0.5 * dpr;
+    this.maxZoom = 2.0 * dpr;
+    this.zoomStep = 0.1 * dpr;
+    this.camera.zoom = dpr;
+    this.targetZoom = dpr;
     this.wheelHandler = () => {};
     this.pointerDownHandler = () => {};
     this.pointerMoveHandler = () => {};
