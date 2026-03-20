@@ -8,6 +8,7 @@ Hard-won lessons from building this project. Claude reads this every session.
 - Use `this.cameras.main` for reliable dimensions with `Scale.RESIZE` mode, not `this.scale` directly
 - Ground tiles are colored rectangles, not sprite-based — simpler and theme-friendly
 - Plants are procedurally drawn with Phaser Graphics (bush, flower, tulip, fern, cactus) — no spritesheet needed
+- Phaser Rectangle `setOrigin(0.5, 1)` with initial height 0 doesn't anchor correctly when height is later changed — use default origin (0.5, 0.5) and explicitly set y to `-height/2` instead
 - Phaser containers don't auto-destroy children; destroy the container to clean up
 - With an empty preload(), Phaser runs create() synchronously before the `'ready'` event fires — check `scene.isActive()` as a fallback
 - GardenGame exposes `onSceneReady()` promise — use it instead of setTimeout to wait for scene initialization
