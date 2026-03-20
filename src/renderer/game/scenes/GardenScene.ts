@@ -3,6 +3,7 @@ import { Agent } from '../sprites/Agent';
 import { TimeLapse, GardenSnapshot } from '../systems/TimeLapse';
 import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
 import { CameraController } from '../systems/CameraController';
+import { PlayerCharacter } from '../systems/PlayerCharacter';
 import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
 import { buildZoneBeds, scatterPlantsInBed, computeWorldBounds } from '../../../shared/garden-bed-layout';
 import type { AgentRole, GardenBedState, GardenLayoutState, PlantState } from '../../../shared/types';
@@ -42,6 +43,7 @@ export class GardenScene extends Phaser.Scene {
   private timeLapse = new TimeLapse();
   private themeManager = new ThemeManager();
   private cameraController!: CameraController;
+  private playerCharacter!: PlayerCharacter;
   private groundTiles: Phaser.GameObjects.Rectangle[] = [];
   private titleText!: Phaser.GameObjects.Text;
 
@@ -76,6 +78,22 @@ export class GardenScene extends Phaser.Scene {
 
       this.layoutScene(width, height);
       this.cameraController = new CameraController(this);
+      this.playerCharacter = new PlayerCharacter(
+        this,
+        this.worldWidth / 2,
+        this.worldHeight / 2,
+        this.worldWidth,
+        this.worldHeight,
+        this.cameraController,
+      );
+
+      // Disable keyboard input when canvas loses focus (e.g. React modal open)
+      this.game.canvas.addEventListener('blur', () => {
+        if (this.input.keyboard) this.input.keyboard.enabled = false;
+      });
+      this.game.canvas.addEventListener('focus', () => {
+        if (this.input.keyboard) this.input.keyboard.enabled = true;
+      });
 
       // No default agents — they appear dynamically from Claude Code sessions
 
@@ -96,6 +114,8 @@ export class GardenScene extends Phaser.Scene {
       this.lastSnapshotTime = 0;
       this.captureSnapshot();
     }
+
+    this.playerCharacter.update(delta);
   }
 
   // --- Public API ---
