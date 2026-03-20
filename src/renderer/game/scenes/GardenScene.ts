@@ -36,7 +36,7 @@ export class GardenScene extends Phaser.Scene {
   private activeDirectories = new Set<string>();
   private directoryLabels = new Map<string, Phaser.GameObjects.Text>();
   private gardenBeds: GardenBedState[] = [];
-  private bedMap = new Map<string, Phaser.GameObjects.Rectangle>();
+  private bedMap = new Map<string, Phaser.GameObjects.Graphics>();
 
   // Phase 4 systems
   private timeLapse = new TimeLapse();
@@ -433,6 +433,9 @@ export class GardenScene extends Phaser.Scene {
 
     // Update game background
     this.cameras.main.setBackgroundColor(theme.backgroundColor);
+
+    // Re-render beds with new soil palette
+    this.renderBedVisuals();
   }
 
   // --- Persistence ---
@@ -657,17 +660,35 @@ export class GardenScene extends Phaser.Scene {
     }
     this.bedMap.clear();
 
+    const theme = this.themeManager.current;
+
     for (const bed of this.gardenBeds) {
-      const bedVisual = this.add.rectangle(
-        bed.x,
-        bed.y,
-        bed.width,
-        bed.height,
-        this.themeManager.current.groundDark,
-      )
-        .setDepth(1)
-        .setAlpha(0.35);
-      this.bedMap.set(bed.id, bedVisual);
+      const g = this.add.graphics();
+      g.setDepth(1);
+
+      // Shadow (offset 2px right and down)
+      g.fillStyle(theme.soilShadow, 1);
+      g.fillRect(bed.x - bed.width / 2 + 2, bed.y - bed.height / 2 + 2, bed.width, bed.height);
+
+      // Soil fill
+      g.fillStyle(theme.soilFill, 1);
+      g.fillRect(bed.x - bed.width / 2, bed.y - bed.height / 2, bed.width, bed.height);
+
+      // Border
+      g.lineStyle(2, theme.soilBorder, 1);
+      g.strokeRect(bed.x - bed.width / 2, bed.y - bed.height / 2, bed.width, bed.height);
+
+      // Soil grain dots (deterministic positions from bed ID)
+      g.fillStyle(theme.soilDots, 0.3);
+      for (let i = 0; i < 8; i++) {
+        const hash = bed.id.charCodeAt(i % bed.id.length) * (i + 1);
+        const dotX = bed.x - bed.width / 2 + 8 + (hash * 7) % (bed.width - 16);
+        const dotY = bed.y - bed.height / 2 + 8 + (hash * 13) % (bed.height - 16);
+        const dotR = 1 + (hash % 2);
+        g.fillCircle(dotX, dotY, dotR);
+      }
+
+      this.bedMap.set(bed.id, g);
     }
   }
 
