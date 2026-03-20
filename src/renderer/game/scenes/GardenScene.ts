@@ -6,6 +6,14 @@ import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
 import { buildZoneBeds, scatterPlantsInBed } from '../../../shared/garden-bed-layout';
 import type { AgentRole, GardenBedState, GardenLayoutState, PlantState } from '../../../shared/types';
 
+// Sprite frame indices from objects.png (33 cols x 20 rows, 16x16 tiles)
+const PLANT_FRAMES = {
+  redFlower: 264,      // row 8, col 0 — flower/plant top in soil row
+  greenBushLarge: 330, // row 10, col 0 — large round green bush
+  greenBushSmall: 333, // row 10, col 3 — smaller round green bush variant
+  yellowFlower: 267,   // row 8, col 3 — yellow flower variant
+};
+
 interface ZoneConfig {
   label: string;
   x: number;
@@ -906,8 +914,8 @@ export class GardenScene extends Phaser.Scene {
   private growPlant(x: number, y: number, filename: string, creatorRole?: AgentRole, growthScale?: number, animate = true): Phaser.GameObjects.Container {
     const ext = filename.split('.').pop() || '';
     const isTest = filename.includes('.test.') || filename.includes('.spec.');
-    const { stemColor, topColor, topShape } = isTest
-      ? { stemColor: 0x8d6e63, topColor: 0xff8a65, topShape: 'dome' as const }
+    const { stemColor, frame, tint } = isTest
+      ? { stemColor: 0x8d6e63, frame: PLANT_FRAMES.redFlower, tint: 0xce93d8 }
       : this.getPlantStyle(ext);
 
     const stem = this.add.rectangle(0, 0, 6, 0, stemColor).setOrigin(0.5, 1);
@@ -927,16 +935,8 @@ export class GardenScene extends Phaser.Scene {
     }
 
     const addTop = () => {
-      let top: Phaser.GameObjects.Shape;
-      if (topShape === 'circle') {
-        top = this.add.circle(0, -targetHeight, 6, topColor);
-      } else if (topShape === 'triangle') {
-        top = this.add.triangle(0, -targetHeight - 4, -8, 8, 8, 8, 0, -4, topColor);
-      } else if (topShape === 'dome') {
-        top = this.add.ellipse(0, -targetHeight, 14, 8, topColor);
-      } else {
-        top = this.add.rectangle(0, -targetHeight, 12, 8, topColor);
-      }
+      const top = this.add.image(0, -targetHeight, 'objects', frame);
+      if (tint) top.setTint(tint);
       container.add(top);
 
       if (animate) {
@@ -964,7 +964,6 @@ export class GardenScene extends Phaser.Scene {
     ).setOrigin(0.5, 0);
     container.add(label);
 
-    // Role attribution dot
     if (creatorRole && creatorRole !== 'unassigned') {
       const dotColor = creatorRole === 'planter' ? 0x66bb6a
         : creatorRole === 'weeder' ? 0xffa726
@@ -994,7 +993,8 @@ export class GardenScene extends Phaser.Scene {
     }
 
     const addCanopy = () => {
-      const canopy = this.add.ellipse(0, -targetHeight, 34, 22, 0x43a047);
+      const canopy = this.add.image(0, -targetHeight, 'objects', PLANT_FRAMES.greenBushLarge);
+      canopy.setScale(34 / 16, 22 / 16);
       const badge = this.add.circle(12, -targetHeight - 4, 9, 0xffee58);
       const badgeText = this.add.text(12, -targetHeight - 4, `${displayPlant.fileCount}`, {
         fontSize: '9px',
@@ -1008,9 +1008,16 @@ export class GardenScene extends Phaser.Scene {
         badge.setScale(0);
         badgeText.setScale(0);
         this.tweens.add({
-          targets: [canopy, badge, badgeText],
-          scaleX: 1,
-          scaleY: 1,
+          targets: canopy,
+          scaleX: { from: 0, to: 34 / 16 },
+          scaleY: { from: 0, to: 22 / 16 },
+          duration: 300,
+          ease: 'Back.easeOut',
+        });
+        this.tweens.add({
+          targets: [badge, badgeText],
+          scaleX: { from: 0, to: 1 },
+          scaleY: { from: 0, to: 1 },
           duration: 300,
           ease: 'Back.easeOut',
         });
@@ -1084,13 +1091,25 @@ export class GardenScene extends Phaser.Scene {
     };
   }
 
-  private getPlantStyle(ext: string): { stemColor: number; topColor: number; topShape: string } {
+  private getPlantStyle(ext: string): { stemColor: number; frame: number; tint?: number } {
     switch (ext) {
-      case 'tsx': return { stemColor: 0x4caf50, topColor: 0xef5350, topShape: 'circle' };
-      case 'ts':  return { stemColor: 0x6d4c41, topColor: 0x43a047, topShape: 'triangle' };
-      case 'css': return { stemColor: 0x4caf50, topColor: 0x42a5f5, topShape: 'rectangle' };
-      case 'json':return { stemColor: 0x8d6e63, topColor: 0xffee58, topShape: 'circle' };
-      default:    return { stemColor: 0x4caf50, topColor: 0xab47bc, topShape: 'circle' };
+      case 'tsx':
+      case 'jsx':
+        return { stemColor: 0x4caf50, frame: PLANT_FRAMES.redFlower };
+      case 'ts':
+      case 'js':
+        return { stemColor: 0x6d4c41, frame: PLANT_FRAMES.greenBushLarge };
+      case 'css':
+      case 'scss':
+        return { stemColor: 0x4caf50, frame: PLANT_FRAMES.redFlower, tint: 0x42a5f5 };
+      case 'json':
+      case 'yaml':
+        return { stemColor: 0x8d6e63, frame: PLANT_FRAMES.yellowFlower };
+      case 'md':
+      case 'txt':
+        return { stemColor: 0x4caf50, frame: PLANT_FRAMES.greenBushSmall, tint: 0xa5d6a7 };
+      default:
+        return { stemColor: 0x4caf50, frame: PLANT_FRAMES.greenBushSmall };
     }
   }
 }
