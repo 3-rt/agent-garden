@@ -45,6 +45,13 @@ export class GardenScene extends Phaser.Scene {
     super({ key: 'GardenScene' });
   }
 
+  preload() {
+    this.load.spritesheet('objects', 'assets/sprites/objects.png', {
+      frameWidth: 16,
+      frameHeight: 16,
+    });
+  }
+
   create() {
     try {
       const { width, height } = this.getSceneSize();
