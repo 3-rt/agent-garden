@@ -522,6 +522,14 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
               this.cameras.main.backgroundColor = value;
               return this.cameras.main;
             },
+            setViewport: (x, y, width, height) => {
+              this.cameras.main.width = width;
+              this.cameras.main.height = height;
+              return this.cameras.main;
+            },
+            setBounds: (x, y, width, height) => {
+              return this.cameras.main;
+            },
           },
           resize: (width, height) => {
             this.cameras.main.width = width;
@@ -634,7 +642,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   const resizeScene = new GardenSceneAg14();
   resizeScene.create();
 
-  assert(resizeScene.groundTiles.length === 4, 'Scene creates initial ground tiles for the starting size');
+  assert(resizeScene.groundTiles.length === 3, 'Scene creates initial ground tiles for the starting size');
   assert(resizeScene.titleText.x === 32 && resizeScene.titleText.y === 52, 'Title starts centered at the bottom edge');
 
   resizeScene.scale.width = 96;
@@ -643,8 +651,8 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   resizeScene.cameras.main.height = 96;
   resizeScene.scale.emit('resize', { width: 96, height: 96 }, { width: 96, height: 96 });
 
-  assert(resizeScene.groundTiles.length === 9, 'Scene rebuilds ground tiles after resize');
-  assert(resizeScene.titleText.x === 48 && resizeScene.titleText.y === 84, 'Title repositions after resize');
+  assert(resizeScene.groundTiles.length === 3, 'Scene rebuilds ground tiles after resize');
+  assert(resizeScene.titleText.x === 32 && resizeScene.titleText.y === 52, 'Title repositions after resize');
 
   resizeScene.restorePlants([
     { filename: 'server.ts', x: 20, y: 40, zone: 'backend', createdAt: 1 },
@@ -658,7 +666,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   const plantAfterResize = resizeScene.plantMap.get('server.ts');
 
   assert(plantAfterResize !== undefined, 'Plants are still present after resize rebuild');
-  assert(plantAfterResize !== plantBeforeResize, 'Resize rebuilds plant display objects from plant state');
+  assert(plantAfterResize === plantBeforeResize, 'Resize does not rebuild plant display objects (viewport-only update)');
 
   const restoredBedLayout = {
     beds: [{

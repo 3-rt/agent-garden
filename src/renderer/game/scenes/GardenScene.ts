@@ -3,7 +3,7 @@ import { Agent } from '../sprites/Agent';
 import { TimeLapse, GardenSnapshot } from '../systems/TimeLapse';
 import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
 import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
-import { buildZoneBeds, scatterPlantsInBed } from '../../../shared/garden-bed-layout';
+import { buildZoneBeds, scatterPlantsInBed, computeWorldBounds } from '../../../shared/garden-bed-layout';
 import type { AgentRole, GardenBedState, GardenLayoutState, PlantState } from '../../../shared/types';
 
 // Procedural plant styles — no spritesheet needed
@@ -16,17 +16,11 @@ interface PlantStyle {
   accentColor?: number;
 }
 
-interface ZoneConfig {
-  label: string;
-  x: number;
-  width: number;
+interface WorldZoneLayout {
+  frontend: { x: number; width: number };
+  backend: { x: number; width: number };
+  tests: { x: number; width: number };
 }
-
-const ZONE_LAYOUT: Record<string, { x: number; width: number }> = {
-  frontend: { x: 0,    width: 0.33 },
-  backend:  { x: 0.33, width: 0.34 },
-  tests:    { x: 0.67, width: 0.33 },
-};
 
 export class GardenScene extends Phaser.Scene {
   private agents = new Map<string, Agent>();
@@ -39,6 +33,9 @@ export class GardenScene extends Phaser.Scene {
   private directoryLabels = new Map<string, Phaser.GameObjects.Text>();
   private gardenBeds: GardenBedState[] = [];
   private bedMap = new Map<string, Phaser.GameObjects.Graphics>();
+
+  private worldWidth = 800;
+  private worldHeight = 600;
 
   // Phase 4 systems
   private timeLapse = new TimeLapse();
@@ -64,7 +61,7 @@ export class GardenScene extends Phaser.Scene {
       const { width, height } = this.getSceneSize();
 
       // Initialize zone plant slot counters
-      for (const key of Object.keys(ZONE_LAYOUT)) {
+      for (const key of ['frontend', 'backend', 'tests']) {
         this.zonePlantSlots.set(key, 0);
       }
 
@@ -104,15 +101,15 @@ export class GardenScene extends Phaser.Scene {
     const agent = this.agents.get(agentId);
     if (!agent) return;
 
-    const { width, height } = this.scale;
+    const zones = this.computeWorldLayout();
     const zone = this.roleToZone(agent.role);
-    const layout = ZONE_LAYOUT[zone];
-    const zoneStart = layout.x * width;
-    const zoneEnd = (layout.x + layout.width) * width;
+    const layout = zones[zone as keyof WorldZoneLayout];
+    const zoneStart = layout.x;
+    const zoneEnd = layout.x + layout.width;
     const targetX = zoneStart + 40 + Math.random() * (zoneEnd - zoneStart - 80);
 
     this.accumulatedText.set(agentId, '');
-    agent.walkTo(targetX, height / 2, () => {
+    agent.walkTo(targetX, this.worldHeight / 2, () => {
       agent.setState('working');
     });
     agent.showSpeechStatic('Thinking...');
@@ -157,17 +154,17 @@ export class GardenScene extends Phaser.Scene {
   addAgent(agentId: string, role: AgentRole, label?: string) {
     if (this.agents.has(agentId)) return;
 
-    const { width, height } = this.scale;
+    const zones = this.computeWorldLayout();
     const zone = this.roleToZone(role);
-    const layout = ZONE_LAYOUT[zone];
+    const layout = zones[zone as keyof WorldZoneLayout];
 
     // Position within the role's zone, offset by existing agent count in that zone
     const agentsInZone = Array.from(this.agents.values()).filter(a => this.roleToZone(a.role) === zone).length;
-    const zoneStart = layout.x * width;
-    const zoneW = layout.width * width;
+    const zoneStart = layout.x;
+    const zoneW = layout.width;
     const homeX = zoneStart + zoneW * 0.3 + agentsInZone * 40;
 
-    const agent = new Agent(this, homeX, height / 2, agentId, role);
+    const agent = new Agent(this, homeX, this.worldHeight / 2, agentId, role);
     if (label) agent.setLabel(label);
     this.agents.set(agentId, agent);
     this.accumulatedText.set(agentId, '');
@@ -196,14 +193,14 @@ export class GardenScene extends Phaser.Scene {
 
     // If zone changed, walk agent to new zone
     if (oldZone !== newZone) {
-      const { width, height } = this.scale;
-      const layout = ZONE_LAYOUT[newZone];
-      const zoneStart = layout.x * width;
-      const zoneW = layout.width * width;
+      const zones = this.computeWorldLayout();
+      const layout = zones[newZone as keyof WorldZoneLayout];
+      const zoneStart = layout.x;
+      const zoneW = layout.width;
       const newHomeX = zoneStart + zoneW * 0.5;
       agent.homeX = newHomeX;
-      agent.homeY = height / 2;
-      agent.walkTo(newHomeX, height / 2, () => agent.setState('idle'));
+      agent.homeY = this.worldHeight / 2;
+      agent.walkTo(newHomeX, this.worldHeight / 2, () => agent.setState('idle'));
     }
   }
 
@@ -220,13 +217,13 @@ export class GardenScene extends Phaser.Scene {
 
       case 'PreToolUse': {
         // Walk to a random spot in their zone and show tool name
-        const { width, height } = this.scale;
+        const zones = this.computeWorldLayout();
         const zone = this.roleToZone(agent.role);
-        const layout = ZONE_LAYOUT[zone];
-        const zoneStart = layout.x * width;
-        const zoneEnd = (layout.x + layout.width) * width;
+        const layout = zones[zone as keyof WorldZoneLayout];
+        const zoneStart = layout.x;
+        const zoneEnd = layout.x + layout.width;
         const targetX = zoneStart + 40 + Math.random() * (zoneEnd - zoneStart - 80);
-        agent.walkTo(targetX, height / 2, () => agent.setState('working'));
+        agent.walkTo(targetX, this.worldHeight / 2, () => agent.setState('working'));
         if (detail) agent.showSpeechStatic(detail.slice(0, 50));
         break;
       }
@@ -263,10 +260,10 @@ export class GardenScene extends Phaser.Scene {
       return;
     }
 
-    const { width, height } = this.scale;
-    const layout = ZONE_LAYOUT[zone];
-    const zoneStart = layout.x * width;
-    const zoneW = layout.width * width;
+    const zones = this.computeWorldLayout();
+    const layout = zones[zone as keyof WorldZoneLayout];
+    const zoneStart = layout.x;
+    const zoneW = layout.width;
 
     const slot = this.zonePlantSlots.get(zone) || 0;
     this.zonePlantSlots.set(zone, slot + 1);
@@ -284,13 +281,13 @@ export class GardenScene extends Phaser.Scene {
       above = dirIndex % 2 === 0;
       const verticalOffset = Math.floor(dirIndex / 2) * 30;
       y = above
-        ? height / 2 - 60 - verticalOffset - Math.random() * 30
-        : height / 2 + 60 + verticalOffset + Math.random() * 30;
+        ? this.worldHeight / 2 - 60 - verticalOffset - Math.random() * 30
+        : this.worldHeight / 2 + 60 + verticalOffset + Math.random() * 30;
     } else {
       above = slot % 2 === 0;
       y = above
-        ? height / 2 - 60 - Math.random() * 40
-        : height / 2 + 60 + Math.random() * 40;
+        ? this.worldHeight / 2 - 60 - Math.random() * 40
+        : this.worldHeight / 2 + 60 + Math.random() * 40;
     }
 
     this.plantPositions.set(key, {
@@ -328,7 +325,6 @@ export class GardenScene extends Phaser.Scene {
     }
     this.directoryLabels.clear();
 
-    const { width, height } = this.scale;
     const dirs = Array.from(this.activeDirectories);
     const colors = ['#66bb6a', '#42a5f5', '#ffa726', '#ce93d8', '#ef5350'];
 
@@ -337,8 +333,8 @@ export class GardenScene extends Phaser.Scene {
       const above = i % 2 === 0;
       const verticalOffset = Math.floor(i / 2) * 30;
       const y = above
-        ? height / 2 - 100 - verticalOffset
-        : height / 2 + 100 + verticalOffset;
+        ? this.worldHeight / 2 - 100 - verticalOffset
+        : this.worldHeight / 2 + 100 + verticalOffset;
 
       const label = this.add.text(10, y, dirName, {
         fontSize: '8px',
@@ -364,7 +360,7 @@ export class GardenScene extends Phaser.Scene {
     this.plantPositions.clear();
     this.plantDisplayIndex.clear();
     this.gardenBeds = [];
-    for (const key of Object.keys(ZONE_LAYOUT)) {
+    for (const key of ['frontend', 'backend', 'tests']) {
       this.zonePlantSlots.set(key, 0);
     }
     // Clear directory tracking and labels
@@ -609,18 +605,28 @@ export class GardenScene extends Phaser.Scene {
   private handleResize(gameSize: Phaser.Structs.Size) {
     const width = gameSize.width || this.scale.width || this.cameras.main.width || 800;
     const height = gameSize.height || this.scale.height || this.cameras.main.height || 600;
-    this.layoutScene(width, height);
+    const cam = this.cameras.main;
+    cam.setViewport(0, 0, width, height);
   }
 
-  private layoutScene(width: number, height: number) {
-    this.cameras.resize(width, height);
-    this.rebuildGround(width, height);
-    this.titleText.setPosition(width / 2, height - 12);
-    this.cameras.main.setBackgroundColor(this.themeManager.current.backgroundColor);
+  private layoutScene(viewportWidth: number, viewportHeight: number) {
+    const bounds = computeWorldBounds({
+      beds: this.gardenBeds,
+      minWidth: viewportWidth,
+      minHeight: viewportHeight,
+    });
+    this.worldWidth = bounds.width;
+    this.worldHeight = bounds.height;
+
+    const cam = this.cameras.main;
+    cam.setViewport(0, 0, viewportWidth, viewportHeight);
+    cam.setBounds(0, 0, this.worldWidth, this.worldHeight);
+    cam.setBackgroundColor(this.themeManager.current.backgroundColor);
+
+    this.rebuildGround();
+    this.titleText.setPosition(this.worldWidth / 2, this.worldHeight - 12);
     this.renderBedVisuals();
 
-    // Rebuild plants from source state after resize/restore so any distorted
-    // display-object transforms from the renderer lifecycle are discarded.
     if (this.plantPositions.size > 0) {
       this.rebuildPlantDisplay();
     }
@@ -630,27 +636,34 @@ export class GardenScene extends Phaser.Scene {
     }
   }
 
-  private rebuildGround(width: number, height: number) {
+  private rebuildGround() {
     for (const tile of this.groundTiles) {
       tile.destroy();
     }
     this.groundTiles = [];
 
     const theme = this.themeManager.current;
-    const tileSize = 32;
+    const zones = this.computeWorldLayout();
 
-    for (let x = 0; x < width; x += tileSize) {
-      for (let y = 0; y < height; y += tileSize) {
-        const tile = this.add.rectangle(
-          x + tileSize / 2,
-          y + tileSize / 2,
-          tileSize,
-          tileSize,
-          theme.groundLight,
-        ).setDepth(0);
-        this.groundTiles.push(tile);
-      }
+    for (const zone of Object.values(zones)) {
+      const tile = this.add.rectangle(
+        zone.x + zone.width / 2,
+        this.worldHeight / 2,
+        zone.width,
+        this.worldHeight,
+        theme.groundLight,
+      ).setDepth(0);
+      this.groundTiles.push(tile);
     }
+  }
+
+  private computeWorldLayout(): WorldZoneLayout {
+    const zoneWidth = this.worldWidth / 3;
+    return {
+      frontend: { x: 0, width: zoneWidth },
+      backend: { x: zoneWidth, width: zoneWidth },
+      tests: { x: zoneWidth * 2, width: zoneWidth },
+    };
   }
 
   private renderBedVisuals() {
@@ -807,16 +820,16 @@ export class GardenScene extends Phaser.Scene {
 
   private addOverflowBed(zone: string): GardenBedState {
     const zoneBeds = this.getZoneBeds(zone);
-    const { width, height } = this.scale;
-    const layout = ZONE_LAYOUT[zone];
-    const zoneStart = layout.x * width;
-    const zoneWidth = layout.width * width;
+    const zones = this.computeWorldLayout();
+    const layout = zones[zone as keyof WorldZoneLayout];
+    const zoneStart = layout.x;
+    const zoneWidth = layout.width;
     const seedBed = zoneBeds[zoneBeds.length - 1] || buildZoneBeds({
       zone: zone as 'frontend' | 'backend' | 'tests',
       fileCount: 1,
       zoneStart,
       zoneWidth,
-      centerY: height / 2,
+      centerY: this.worldHeight / 2,
     })[0];
     const maxRank = zoneBeds.reduce((current, bed) => Math.max(current, bed.rank), -1);
     const zoneEnd = zoneStart + zoneWidth;
