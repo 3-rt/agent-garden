@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react';
 import { GardenGame } from './game/GardenGame';
 import { DirectoryPicker } from './components/DirectoryPicker';
 import { StatsPanel } from './components/StatsPanel';
 import { ThemePicker } from './components/ThemePicker';
 import { SetupBanner } from './components/SetupBanner';
 import { HookSetupModal } from './components/HookSetupModal';
+import { SpawnAgentModal } from './components/SpawnAgentModal';
 import { ActivityLogPanel } from './components/ActivityLogPanel';
 import { ThemeManager } from './game/systems/ThemeManager';
 import {
@@ -44,6 +45,7 @@ export function App() {
   const [cliInstalled, setCliInstalled] = useState(true);
   const [hooksConfigured, setHooksConfigured] = useState(true);
   const [showHookSetupModal, setShowHookSetupModal] = useState(false);
+  const [showSpawnModal, setShowSpawnModal] = useState(false);
   const [currentTheme, setCurrentTheme] = useState('garden');
   const [ccAgents, setCCAgents] = useState<CCAgentSession[]>([]);
   const [plans, setPlans] = useState<OrchestrationPlan[]>([]);
@@ -51,6 +53,8 @@ export function App() {
   const [activityLogEntries, setActivityLogEntries] = useState<ActivityLogEntry[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [activitySearch, setActivitySearch] = useState('');
+  const [panelHeight, setPanelHeight] = useState(300);
+  const isDragging = useRef(false);
   const agentSessionsRef = useRef<CCAgentSession[]>([]);
 
   useEffect(() => {
@@ -91,8 +95,8 @@ export function App() {
     if (gameContainerRef.current && !gameRef.current) {
       gameRef.current = new GardenGame(gameContainerRef.current);
 
-      // Restore garden state after a short delay (scene needs to initialize)
-      setTimeout(() => {
+      // Restore garden state after scene is fully initialized (preload + create)
+      gameRef.current.onSceneReady().then(() => {
         window.electronAPI?.getGardenState().then((state) => {
           if (state?.theme && gameRef.current) {
             gameRef.current.setTheme(state.theme);
@@ -111,7 +115,7 @@ export function App() {
             restoreGeneratedGarden(state?.theme);
           }
         });
-      }, 500);
+      });
     }
 
     // Load initial stats
@@ -320,28 +324,12 @@ export function App() {
     await window.electronAPI?.submitGoal(goal);
   }, [goalInput]);
 
-  const handleSpawnAgent = useCallback(async () => {
-    const prompt = window.prompt('Task for the new agent (leave empty for interactive):');
-    if (prompt === null) return;
-
-    // If multiple directories are available, let user pick
-    let targetDir = directory || undefined;
-    const allDirs = [directory, ...additionalDirectories].filter(Boolean);
-    if (allDirs.length > 1) {
-      const dirNames = allDirs.map((d, i) => `${i + 1}. ${d.split('/').pop()}`).join('\n');
-      const choice = window.prompt(`Choose directory (1-${allDirs.length}):\n${dirNames}`, '1');
-      if (choice === null) return;
-      const idx = parseInt(choice, 10) - 1;
-      if (idx >= 0 && idx < allDirs.length) {
-        targetDir = allDirs[idx];
-      }
-    }
-
-    const result = await window.electronAPI?.spawnAgent('unassigned', prompt || undefined, targetDir);
+  const handleSpawnAgent = useCallback(async (prompt?: string, targetDir?: string) => {
+    const result = await window.electronAPI?.spawnAgent('unassigned', prompt, targetDir);
     if (!result) {
       setLastError('Failed to spawn agent. Is Claude CLI installed?');
     }
-  }, [directory, additionalDirectories]);
+  }, []);
 
   const handleStopAgent = useCallback((sessionId: string) => {
     window.electronAPI?.stopAgent(sessionId);
@@ -357,6 +345,26 @@ export function App() {
     tester: '#42a5f5',
     unassigned: '#ce93d8',
   };
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    const startY = e.clientY;
+    const startHeight = panelHeight;
+    const onMove = (me: MouseEvent) => {
+      if (!isDragging.current) return;
+      const delta = startY - me.clientY;
+      const newHeight = Math.max(80, Math.min(window.innerHeight - 100, startHeight + delta));
+      setPanelHeight(newHeight);
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [panelHeight]);
 
   const plantCount = gameRef.current?.getPlantCount() || 0;
   const filteredActivityLogEntries = filterActivityLogEntries(activityLogEntries, {
@@ -385,9 +393,31 @@ export function App() {
       )}
       <div
         ref={gameContainerRef}
-        style={{ flex: 1, minHeight: 0 }}
+        style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}
       />
-      <div style={{ padding: '8px 16px', background: '#16213e', borderTop: '2px solid #0f3460' }}>
+      <div
+        onMouseDown={handleResizeStart}
+        style={{
+          height: '6px',
+          cursor: 'row-resize',
+          background: '#0f3460',
+          position: 'relative',
+          zIndex: 11,
+          flexShrink: 0,
+        }}
+      >
+        <div style={{
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: '30px',
+          height: '2px',
+          background: '#30486e',
+          borderRadius: '1px',
+        }} />
+      </div>
+      <div style={{ height: panelHeight, overflow: 'auto', padding: '8px 16px', background: '#16213e', position: 'relative', zIndex: 10, flexShrink: 0 }}>
         {/* Claude Code agent status bar */}
         <div style={{
           display: 'flex',
@@ -458,7 +488,7 @@ export function App() {
             </div>
           ))}
           <button
-            onClick={handleSpawnAgent}
+            onClick={() => setShowSpawnModal(true)}
             style={{
               padding: '2px 8px',
               background: '#0d1117',
@@ -600,6 +630,13 @@ export function App() {
             setShowSetupBanner(false);
             setHookStatus('waiting');
           }}
+        />
+      )}
+      {showSpawnModal && (
+        <SpawnAgentModal
+          directories={[directory, ...additionalDirectories].filter(Boolean)}
+          onSpawn={handleSpawnAgent}
+          onClose={() => setShowSpawnModal(false)}
         />
       )}
     </div>

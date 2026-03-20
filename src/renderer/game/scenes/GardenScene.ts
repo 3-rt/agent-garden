@@ -6,13 +6,15 @@ import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
 import { buildZoneBeds, scatterPlantsInBed } from '../../../shared/garden-bed-layout';
 import type { AgentRole, GardenBedState, GardenLayoutState, PlantState } from '../../../shared/types';
 
-// Sprite frame indices from objects.png (33 cols x 20 rows, 16x16 tiles)
-const PLANT_FRAMES = {
-  redFlower: 264,      // row 8, col 0 — flower/plant top in soil row
-  greenBushLarge: 330, // row 10, col 0 — large round green bush
-  greenBushSmall: 333, // row 10, col 3 — smaller round green bush variant
-  yellowFlower: 267,   // row 8, col 3 — yellow flower variant
-};
+// Procedural plant styles — no spritesheet needed
+type PlantShape = 'bush' | 'flower' | 'tulip' | 'fern' | 'cactus';
+
+interface PlantStyle {
+  shape: PlantShape;
+  stemColor: number;
+  primaryColor: number;
+  accentColor?: number;
+}
 
 interface ZoneConfig {
   label: string;
@@ -54,10 +56,7 @@ export class GardenScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.spritesheet('objects', 'assets/sprites/objects.png', {
-      frameWidth: 16,
-      frameHeight: 16,
-    });
+    // No external assets — all plants are procedurally drawn
   }
 
   create() {
@@ -932,15 +931,92 @@ export class GardenScene extends Phaser.Scene {
     this.rebuildPlantDisplay(new Set([key]));
   }
 
+  private drawPlantTop(style: PlantStyle): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics();
+    const { shape, primaryColor, accentColor } = style;
+
+    switch (shape) {
+      case 'bush': {
+        // Round leafy bush
+        g.fillStyle(primaryColor, 1);
+        g.fillCircle(0, 0, 14);
+        g.fillCircle(-8, 4, 10);
+        g.fillCircle(8, 4, 10);
+        // Highlight
+        g.fillStyle(0xffffff, 0.15);
+        g.fillCircle(-3, -5, 6);
+        break;
+      }
+      case 'flower': {
+        // Petals around center
+        const petalColor = accentColor || 0xff6b6b;
+        g.fillStyle(petalColor, 1);
+        for (let i = 0; i < 5; i++) {
+          const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
+          g.fillCircle(Math.cos(angle) * 9, Math.sin(angle) * 9, 7);
+        }
+        // Center
+        g.fillStyle(0xffee58, 1);
+        g.fillCircle(0, 0, 5);
+        break;
+      }
+      case 'tulip': {
+        // Tulip-shaped bloom
+        const tulipColor = accentColor || 0xe040fb;
+        g.fillStyle(tulipColor, 1);
+        g.fillEllipse(0, -2, 16, 22);
+        // Inner petal lines
+        g.fillStyle(0xffffff, 0.2);
+        g.fillEllipse(-3, 0, 5, 14);
+        g.fillEllipse(3, 0, 5, 14);
+        break;
+      }
+      case 'fern': {
+        // Layered leaf fronds
+        g.fillStyle(primaryColor, 1);
+        for (let i = 0; i < 4; i++) {
+          const yOff = i * 5 - 8;
+          const spread = 12 - i * 2;
+          g.fillEllipse(-spread, yOff, 10, 5);
+          g.fillEllipse(spread, yOff, 10, 5);
+        }
+        // Center spine
+        g.fillStyle(0x2e7d32, 1);
+        g.fillRect(-1, -12, 2, 24);
+        break;
+      }
+      case 'cactus': {
+        // Barrel cactus body
+        g.fillStyle(primaryColor, 1);
+        g.fillEllipse(0, 0, 18, 22);
+        // Ribs
+        g.lineStyle(1, 0x2e7d32, 0.4);
+        g.lineBetween(-4, -10, -4, 10);
+        g.lineBetween(0, -11, 0, 11);
+        g.lineBetween(4, -10, 4, 10);
+        // Small flower on top
+        if (accentColor) {
+          g.fillStyle(accentColor, 1);
+          g.fillCircle(0, -10, 4);
+          g.fillStyle(0xffee58, 1);
+          g.fillCircle(0, -10, 2);
+        }
+        break;
+      }
+    }
+
+    return g;
+  }
+
   private growPlant(x: number, y: number, filename: string, creatorRole?: AgentRole, growthScale?: number, animate = true): Phaser.GameObjects.Container {
     const ext = filename.split('.').pop() || '';
     const isTest = filename.includes('.test.') || filename.includes('.spec.');
-    const { stemColor, frame, tint } = isTest
-      ? { stemColor: 0x8d6e63, frame: PLANT_FRAMES.redFlower, tint: 0xce93d8 }
+    const style: PlantStyle = isTest
+      ? { shape: 'tulip', stemColor: 0x8d6e63, primaryColor: 0xce93d8, accentColor: 0xce93d8 }
       : this.getPlantStyle(ext);
 
-    const stem = this.add.rectangle(0, 0, 6, 0, stemColor).setOrigin(0.5, 1);
-    const container = this.add.container(x, y, [stem]);
+    const stem = this.add.rectangle(0, 0, 4, 0, style.stemColor).setOrigin(0.5, 1);
+    const container = this.add.container(x, y, [stem]).setDepth(2);
 
     const targetHeight = Math.round((20 + Math.random() * 20) * (growthScale || 1));
 
@@ -956,8 +1032,8 @@ export class GardenScene extends Phaser.Scene {
     }
 
     const addTop = () => {
-      const top = this.add.image(0, -targetHeight, 'objects', frame);
-      if (tint) top.setTint(tint);
+      const top = this.drawPlantTop(style);
+      top.setPosition(0, -targetHeight);
       container.add(top);
 
       if (animate) {
@@ -999,8 +1075,8 @@ export class GardenScene extends Phaser.Scene {
 
   private growMergedPlant(displayPlant: DisplayPlant, animate: boolean): Phaser.GameObjects.Container {
     const { x, y, targetHeight } = this.getMergedPlantPlacement(displayPlant);
-    const stem = this.add.rectangle(0, 0, 10, 0, 0x6d4c41).setOrigin(0.5, 1);
-    const container = this.add.container(x, y, [stem]);
+    const stem = this.add.rectangle(0, 0, 8, 0, 0x6d4c41).setOrigin(0.5, 1);
+    const container = this.add.container(x, y, [stem]).setDepth(2);
 
     if (animate) {
       this.tweens.add({
@@ -1014,10 +1090,21 @@ export class GardenScene extends Phaser.Scene {
     }
 
     const addCanopy = () => {
-      const canopy = this.add.image(0, -targetHeight, 'objects', PLANT_FRAMES.greenBushLarge);
-      canopy.setScale(34 / 16, 22 / 16);
-      const badge = this.add.circle(12, -targetHeight - 4, 9, 0xffee58);
-      const badgeText = this.add.text(12, -targetHeight - 4, `${displayPlant.fileCount}`, {
+      // Large merged bush canopy — drawn procedurally
+      const canopy = this.add.graphics();
+      canopy.setPosition(0, -targetHeight);
+      canopy.fillStyle(0x4caf50, 1);
+      canopy.fillCircle(0, 0, 20);
+      canopy.fillCircle(-12, 6, 14);
+      canopy.fillCircle(12, 6, 14);
+      canopy.fillCircle(-6, -8, 12);
+      canopy.fillCircle(6, -8, 12);
+      // Highlight
+      canopy.fillStyle(0xffffff, 0.12);
+      canopy.fillCircle(-4, -8, 8);
+
+      const badge = this.add.circle(22, -targetHeight - 12, 9, 0xffee58);
+      const badgeText = this.add.text(22, -targetHeight - 12, `${displayPlant.fileCount}`, {
         fontSize: '9px',
         color: '#243b1a',
         fontFamily: 'monospace',
@@ -1030,8 +1117,8 @@ export class GardenScene extends Phaser.Scene {
         badgeText.setScale(0);
         this.tweens.add({
           targets: canopy,
-          scaleX: { from: 0, to: 34 / 16 },
-          scaleY: { from: 0, to: 22 / 16 },
+          scaleX: { from: 0, to: 1 },
+          scaleY: { from: 0, to: 1 },
           duration: 300,
           ease: 'Back.easeOut',
         });
@@ -1112,25 +1199,27 @@ export class GardenScene extends Phaser.Scene {
     };
   }
 
-  private getPlantStyle(ext: string): { stemColor: number; frame: number; tint?: number } {
+  private getPlantStyle(ext: string): PlantStyle {
     switch (ext) {
       case 'tsx':
       case 'jsx':
-        return { stemColor: 0x4caf50, frame: PLANT_FRAMES.redFlower };
+        return { shape: 'flower', stemColor: 0x4caf50, primaryColor: 0x4caf50, accentColor: 0x42a5f5 };
       case 'ts':
       case 'js':
-        return { stemColor: 0x6d4c41, frame: PLANT_FRAMES.greenBushLarge };
+        return { shape: 'bush', stemColor: 0x6d4c41, primaryColor: 0x66bb6a };
       case 'css':
       case 'scss':
-        return { stemColor: 0x4caf50, frame: PLANT_FRAMES.redFlower, tint: 0x42a5f5 };
+        return { shape: 'flower', stemColor: 0x4caf50, primaryColor: 0x4caf50, accentColor: 0xe040fb };
       case 'json':
       case 'yaml':
-        return { stemColor: 0x8d6e63, frame: PLANT_FRAMES.yellowFlower };
+        return { shape: 'cactus', stemColor: 0x8d6e63, primaryColor: 0x7cb342, accentColor: 0xffee58 };
+      case 'py':
+        return { shape: 'fern', stemColor: 0x4caf50, primaryColor: 0x388e3c };
       case 'md':
       case 'txt':
-        return { stemColor: 0x4caf50, frame: PLANT_FRAMES.greenBushSmall, tint: 0xa5d6a7 };
+        return { shape: 'tulip', stemColor: 0x4caf50, primaryColor: 0xa5d6a7, accentColor: 0xc8e6c9 };
       default:
-        return { stemColor: 0x4caf50, frame: PLANT_FRAMES.greenBushSmall };
+        return { shape: 'bush', stemColor: 0x4caf50, primaryColor: 0x81c784 };
     }
   }
 }

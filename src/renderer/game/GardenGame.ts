@@ -3,30 +3,47 @@ import { GardenScene } from './scenes/GardenScene';
 import type { GardenLayoutState, PlantState, AgentRole } from '../../shared/types';
 
 export class GardenGame {
-  private game: Phaser.Game;
+  private game!: Phaser.Game;
   private scene: GardenScene | null = null;
+  private sceneReadyPromise: Promise<void>;
 
   constructor(container: HTMLElement) {
     const w = container.clientWidth || 800;
     const h = container.clientHeight || 600;
 
-    this.game = new Phaser.Game({
-      type: Phaser.CANVAS,
-      parent: container,
-      width: w,
-      height: h,
-      backgroundColor: '#2d5a27',
-      pixelArt: true,
-      scene: GardenScene,
-      scale: {
-        mode: Phaser.Scale.RESIZE,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
-      },
-    });
+    this.sceneReadyPromise = new Promise<void>((resolve) => {
+      this.game = new Phaser.Game({
+        type: Phaser.CANVAS,
+        parent: container,
+        width: w,
+        height: h,
+        backgroundColor: '#2d5a27',
+        pixelArt: true,
+        scene: GardenScene,
+        scale: {
+          mode: Phaser.Scale.RESIZE,
+          autoCenter: Phaser.Scale.CENTER_BOTH,
+        },
+      });
 
-    this.game.events.on('ready', () => {
-      this.scene = this.game.scene.getScene('GardenScene') as GardenScene;
+      this.game.events.on('ready', () => {
+        const scene = this.game.scene.getScene('GardenScene') as GardenScene;
+        if (scene.scene.isActive()) {
+          // Scene already created (no assets to preload)
+          this.scene = scene;
+          resolve();
+        } else {
+          scene.events.once(Phaser.Scenes.Events.CREATE, () => {
+            this.scene = scene;
+            resolve();
+          });
+        }
+      });
     });
+  }
+
+  onSceneReady(): Promise<void> {
+    return this.sceneReadyPromise;
   }
 
   onTaskStart(agentId: string) {

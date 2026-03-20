@@ -76,7 +76,7 @@ src/
     index.tsx                  # React DOM entry
     App.tsx                    # Root component — CC agent events, goal input, game bridge
     activity-log.ts            # Activity log entry creation/filter helpers
-    assets/sprites/            # Pixel art spritesheets (Overworld, character, objects, etc.)
+    assets/sprites/            # Pixel art spritesheets (unused by plants — plants are procedural)
     components/
       ActivityLogPanel.tsx     # Filterable lifecycle/tool/file/plan event history
       DirectoryPicker.tsx      # Shows/changes watched directory
@@ -88,7 +88,7 @@ src/
       TaskInput.tsx            # (legacy) Text input for old API mode
       ApiKeyModal.tsx          # (legacy) API key entry modal
     game/
-      GardenGame.ts            # Phaser game wrapper (React <-> Phaser bridge, forces Canvas renderer)
+      GardenGame.ts            # Phaser game wrapper (React <-> Phaser bridge, forces Canvas renderer, scene-ready promise)
       plant-clusters.ts        # Visible plant grouping + prioritization for dense gardens
       scenes/
         GardenScene.ts         # Main scene: beds, zones, agents, plants, resize/restore rebuilds
@@ -115,6 +115,7 @@ Built the visual garden, sprite system, animations, and rendering pipeline:
 - 5 themes (Garden, Desert, Zen, Underwater, Space)
 - Time-lapse snapshots, persistence, stats panel
 - Ground rendering uses theme-colored rectangles (alternating light/dark) with dirt path
+- Plants are procedurally drawn (no spritesheet) — 5 shapes: bush, flower, tulip, fern, cactus
 
 *Note: Phases 1–4 originally used built-in API agents. Phase 5 replaced them with real Claude Code sessions. The legacy API services (`claude.ts`, `agent-pool.ts`) are no longer wired into the app but remain for test coverage.*
 
