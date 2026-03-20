@@ -14,6 +14,9 @@ export class CameraController {
   private readonly maxZoom = 2.0;
   private readonly zoomStep = 0.1;
   private readonly followLerp = 0.1;
+  private readonly zoomLerp = 0.15;
+
+  private targetZoom = 1.0;
 
   private wheelHandler: Function;
   private pointerDownHandler: Function;
@@ -23,6 +26,7 @@ export class CameraController {
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.camera = scene.cameras.main;
+    this.targetZoom = this.camera.zoom;
     this.wheelHandler = () => {};
     this.pointerDownHandler = () => {};
     this.pointerMoveHandler = () => {};
@@ -31,25 +35,13 @@ export class CameraController {
   }
 
   private setupInput() {
-    // Scroll wheel zoom — centered on mouse pointer position
-    this.wheelHandler = (pointer: Phaser.Input.Pointer, _gameObjects: any[], _deltaX: number, deltaY: number) => {
-      const oldZoom = this.camera.zoom;
-      const newZoom = Phaser.Math.Clamp(
-        oldZoom + (deltaY > 0 ? -this.zoomStep : this.zoomStep),
+    // Scroll wheel zoom — smooth lerp toward target
+    this.wheelHandler = (_pointer: Phaser.Input.Pointer, _gameObjects: any[], _deltaX: number, deltaY: number) => {
+      this.targetZoom = Phaser.Math.Clamp(
+        this.targetZoom + (deltaY > 0 ? -this.zoomStep : this.zoomStep),
         this.minZoom,
         this.maxZoom,
       );
-
-      // Zoom toward mouse pointer: adjust scroll so the world point under the
-      // pointer stays in the same screen position after the zoom change.
-      const worldX = pointer.worldX;
-      const worldY = pointer.worldY;
-      const newScrollX = worldX - (pointer.x / newZoom);
-      const newScrollY = worldY - (pointer.y / newZoom);
-
-      this.camera.zoom = newZoom;
-      this.camera.scrollX = newScrollX;
-      this.camera.scrollY = newScrollY;
     };
     this.scene.input.on('wheel', this.wheelHandler);
 
@@ -84,6 +76,15 @@ export class CameraController {
 
     // Disable right-click context menu on the canvas
     this.scene.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  update() {
+    // Smooth zoom toward target
+    if (Math.abs(this.camera.zoom - this.targetZoom) > 0.001) {
+      this.camera.zoom += (this.targetZoom - this.camera.zoom) * this.zoomLerp;
+    } else if (this.camera.zoom !== this.targetZoom) {
+      this.camera.zoom = this.targetZoom;
+    }
   }
 
   startFollow(target: Phaser.GameObjects.GameObject) {

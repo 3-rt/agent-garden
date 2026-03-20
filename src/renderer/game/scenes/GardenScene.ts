@@ -125,6 +125,7 @@ export class GardenScene extends Phaser.Scene {
       this.captureSnapshot();
     }
 
+    this.cameraController.update();
     this.playerCharacter.update(delta);
 
     const pos = this.playerCharacter.getPosition();
