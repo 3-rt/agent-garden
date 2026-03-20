@@ -76,9 +76,13 @@ export class Minimap {
   update(playerX: number, playerY: number) {
     const cam = this.scene.cameras.main;
 
-    // Reposition minimap to bottom-right of viewport
-    this.container.x = cam.width - this.mapWidth - 10;
-    this.container.y = cam.height - this.mapHeight - 10;
+    // Counteract camera zoom so minimap stays a fixed screen size
+    const invZoom = 1 / cam.zoom;
+    this.container.setScale(invZoom);
+
+    // Position in screen-space: bottom-right corner, accounting for inverse scale
+    this.container.x = (cam.width - this.mapWidth - 10) * invZoom;
+    this.container.y = (cam.height - this.mapHeight - 10) * invZoom;
 
     // Update viewport indicator
     const vx = (cam.scrollX / this.worldWidth) * this.mapWidth;

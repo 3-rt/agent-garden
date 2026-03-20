@@ -672,7 +672,6 @@ export class GardenScene extends Phaser.Scene {
 
     const cam = this.cameras.main;
     cam.setViewport(0, 0, viewportWidth, viewportHeight);
-    cam.setBounds(0, 0, this.worldWidth, this.worldHeight);
     cam.setBackgroundColor(this.themeManager.current.backgroundColor);
 
     this.rebuildGround();
