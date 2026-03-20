@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { Agent } from '../sprites/Agent';
 import { TimeLapse, GardenSnapshot } from '../systems/TimeLapse';
 import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
+import { CameraController } from '../systems/CameraController';
 import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
 import { buildZoneBeds, scatterPlantsInBed, computeWorldBounds } from '../../../shared/garden-bed-layout';
 import type { AgentRole, GardenBedState, GardenLayoutState, PlantState } from '../../../shared/types';
@@ -40,6 +41,7 @@ export class GardenScene extends Phaser.Scene {
   // Phase 4 systems
   private timeLapse = new TimeLapse();
   private themeManager = new ThemeManager();
+  private cameraController!: CameraController;
   private groundTiles: Phaser.GameObjects.Rectangle[] = [];
   private titleText!: Phaser.GameObjects.Text;
 
@@ -73,6 +75,7 @@ export class GardenScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(20);
 
       this.layoutScene(width, height);
+      this.cameraController = new CameraController(this);
 
       // No default agents — they appear dynamically from Claude Code sessions
 
