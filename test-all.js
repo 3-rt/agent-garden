@@ -1618,6 +1618,32 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   fsAg10.rmSync(ag10Dir, { recursive: true, force: true });
 
   // ============================================================
+  // World Bounds
+  // ============================================================
+  section('World Bounds');
+
+  const { computeWorldBounds } = require('./test-build/shared/garden-bed-layout');
+
+  // Empty garden should return minimum bounds
+  const emptyBounds = computeWorldBounds({ beds: [], minWidth: 800, minHeight: 600 });
+  assert(emptyBounds.width >= 800, 'Empty world has minimum width');
+  assert(emptyBounds.height >= 600, 'Empty world has minimum height');
+  assert(emptyBounds.x === 0, 'World starts at x=0');
+  assert(emptyBounds.y === 0, 'World starts at y=0');
+
+  // World with beds should encompass all beds + padding
+  const worldBoundsTestBeds = [
+    { id: 'b1', zone: 'frontend', x: 100, y: 200, width: 120, height: 80, rank: 0, capacity: 5, directoryGroups: [], plantKeys: [] },
+    { id: 'b2', zone: 'backend', x: 500, y: 300, width: 120, height: 80, rank: 0, capacity: 5, directoryGroups: [], plantKeys: [] },
+  ];
+  const bedBounds = computeWorldBounds({ beds: worldBoundsTestBeds, minWidth: 800, minHeight: 600 });
+  // bed.x is center, so right edge = 500 + 60 = 560, plus 2*64 padding = 688, but min is 800
+  assert(bedBounds.width >= 800, 'World width at least minWidth');
+  assert(bedBounds.width >= 560 + 128, 'World width encompasses rightmost bed edge + padding');
+  // bed.y is center, so bottom edge = 300 + 40 = 340, plus 2*64 padding = 468, but min is 600
+  assert(bedBounds.height >= 600, 'World height at least minHeight');
+
+  // ============================================================
   // Summary
   // ============================================================
   console.log(`\n========================================`);

@@ -137,6 +137,13 @@ export interface GardenBedState {
   plantKeys: string[];
 }
 
+export interface WorldBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface GardenLayoutState {
   plants: PlantState[];
   beds: GardenBedState[];

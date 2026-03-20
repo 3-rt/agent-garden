@@ -1,4 +1,4 @@
-import type { GardenBedState, GardenZone, PlantState } from './types';
+import type { GardenBedState, GardenZone, PlantState, WorldBounds } from './types';
 
 export interface BedLayoutFile {
   filename: string;
@@ -195,6 +195,41 @@ export function scatterPlantsInBed({
       return Math.sqrt(dx * dx + dy * dy) >= minSpacing;
     });
   });
+}
+
+export interface ComputeWorldBoundsOptions {
+  beds: GardenBedState[];
+  minWidth: number;
+  minHeight: number;
+  padding?: number;
+}
+
+export function computeWorldBounds({
+  beds,
+  minWidth,
+  minHeight,
+  padding = 64,
+}: ComputeWorldBoundsOptions): WorldBounds {
+  if (beds.length === 0) {
+    return { x: 0, y: 0, width: minWidth, height: minHeight };
+  }
+
+  let maxRight = 0;
+  let maxBottom = 0;
+
+  for (const bed of beds) {
+    const right = bed.x + bed.width / 2;
+    const bottom = bed.y + bed.height / 2;
+    if (right > maxRight) maxRight = right;
+    if (bottom > maxBottom) maxBottom = bottom;
+  }
+
+  return {
+    x: 0,
+    y: 0,
+    width: Math.max(minWidth, maxRight + padding * 2),
+    height: Math.max(minHeight, maxBottom + padding * 2),
+  };
 }
 
 export function assignGroupsToBeds({
