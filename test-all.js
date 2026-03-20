@@ -573,6 +573,23 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
             };
             return object;
           },
+          image: (x, y, texture, frame) => {
+            const object = createDisplayObject(x, y);
+            object.texture = texture;
+            object.frame = frame;
+            object.setTint = (color) => { object.tint = color; return object; };
+            return object;
+          },
+          graphics: (config) => {
+            const object = createDisplayObject(0, 0);
+            object.fillStyle = (color, alpha) => object;
+            object.fillRect = (x, y, w, h) => object;
+            object.lineStyle = (width, color, alpha) => object;
+            object.strokeRect = (x, y, w, h) => object;
+            object.fillCircle = (x, y, r) => object;
+            object.setDepth = (d) => { object.depth = d; return object; };
+            return object;
+          },
         };
         this.time = {
           delayedCall() {
@@ -1383,8 +1400,8 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(trackerAg8.getSession('hook-session-1').processPid === 4242, 'Hook session keeps deduped process PID for fallback exit detection');
 
   trackerAg8.removeProcessSession(4242);
-  assert(trackerAg8.getSession('hook-session-1') === undefined, 'Process exit removes deduped hook session');
-  assert(disconnectEvent?.reason === 'process exited', 'Fallback removal reports process exit reason');
+  assert(trackerAg8.getSession('hook-session-1') !== undefined, 'Hook session survives process exit');
+  assert(trackerAg8.getSession('hook-session-1').processPid === undefined, 'Process PID cleared after exit');
 
   // ============================================================
   // AG-10: Initial Garden Generation
