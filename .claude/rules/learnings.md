@@ -12,6 +12,8 @@ Hard-won lessons from building this project. Claude reads this every session.
 - Phaser containers don't auto-destroy children; destroy the container to clean up
 - With an empty preload(), Phaser runs create() synchronously before the `'ready'` event fires — check `scene.isActive()` as a fallback
 - GardenGame exposes `onSceneReady()` promise — use it instead of setTimeout to wait for scene initialization
+- For HUD/UI elements (minimap, etc.) that must stay fixed on screen regardless of camera zoom/scroll, use a dedicated UI camera (`scene.cameras.add`) with its own viewport — `setScrollFactor(0)` still gets affected by zoom, and world-space repositioning shakes during zoom lerp
+- Place UI camera objects at a far-off offset (e.g. 100000, 100000) so the main camera never renders them; use `cam.ignore()` as an extra safeguard
 
 ## Electron IPC
 

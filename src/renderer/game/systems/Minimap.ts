@@ -1,8 +1,14 @@
 import Phaser from 'phaser';
 import type { GardenBedState } from '../../../shared/types';
 
+// Place minimap objects far off in world-space where nothing else exists.
+// The UI camera viewport is scrolled to this position; the main camera never sees it.
+const UI_OFFSET_X = 100000;
+const UI_OFFSET_Y = 100000;
+
 export class Minimap {
   private scene: Phaser.Scene;
+  private uiCamera: Phaser.Cameras.Scene2D.Camera;
   private container: Phaser.GameObjects.Container;
   private background: Phaser.GameObjects.Rectangle;
   private viewportIndicator: Phaser.GameObjects.Rectangle;
@@ -11,6 +17,7 @@ export class Minimap {
 
   private readonly mapWidth = 200;
   private readonly mapHeight = 150;
+  private readonly margin = 10;
   private worldWidth: number;
   private worldHeight: number;
 
@@ -20,14 +27,27 @@ export class Minimap {
     this.worldHeight = worldHeight;
 
     const cam = scene.cameras.main;
-    const mapX = cam.width - this.mapWidth - 10;
-    const mapY = cam.height - this.mapHeight - 10;
 
-    // Background
-    this.background = scene.add.rectangle(0, 0, this.mapWidth, this.mapHeight, 0x000000, 0.6)
-      .setOrigin(0, 0);
+    // Create a small UI camera whose viewport sits at the bottom-right of the screen.
+    // It is scrolled to the far-off UI_OFFSET so it only renders the minimap objects.
+    this.uiCamera = scene.cameras.add(
+      cam.width - this.mapWidth - this.margin,
+      cam.height - this.mapHeight - this.margin,
+      this.mapWidth,
+      this.mapHeight,
+    );
+    this.uiCamera.setScroll(UI_OFFSET_X, UI_OFFSET_Y);
+    this.uiCamera.setZoom(1);
+    this.uiCamera.setBackgroundColor(0x000000);
+    this.uiCamera.setAlpha(0.6);
 
-    // Bed markers (drawn as graphics)
+    // Background (positioned at 0,0 relative to container)
+    this.background = scene.add.rectangle(
+      0, 0,
+      this.mapWidth, this.mapHeight, 0x000000, 0.6,
+    ).setOrigin(0, 0);
+
+    // Bed markers
     this.bedGraphics = scene.add.graphics();
 
     // Viewport indicator
@@ -39,21 +59,30 @@ export class Minimap {
     // Player dot
     this.playerDot = scene.add.circle(0, 0, 3, 0x42a5f5);
 
-    this.container = scene.add.container(mapX, mapY, [
+    this.container = scene.add.container(UI_OFFSET_X, UI_OFFSET_Y, [
       this.background,
       this.bedGraphics,
       this.viewportIndicator,
       this.playerDot,
     ]);
     this.container.setDepth(300);
-    this.container.setScrollFactor(0);
+
+    // Main camera ignores minimap objects (they're far off-screen anyway, but be explicit)
+    cam.ignore(this.container);
+    cam.ignore(this.background);
+    cam.ignore(this.bedGraphics);
+    cam.ignore(this.viewportIndicator);
+    cam.ignore(this.playerDot);
 
     // Click on minimap to teleport camera
     this.background.setInteractive();
     this.background.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      // Container uses scrollFactor(0), so use screen-space pointer coords
-      const localX = pointer.x - this.container.x;
-      const localY = pointer.y - this.container.y;
+      // pointer.x/y are screen coords; subtract the UI camera viewport position
+      const vpX = this.uiCamera.x;
+      const vpY = this.uiCamera.y;
+      const localX = pointer.x - vpX;
+      const localY = pointer.y - vpY;
+      if (localX < 0 || localY < 0 || localX > this.mapWidth || localY > this.mapHeight) return;
       const worldX = (localX / this.mapWidth) * this.worldWidth;
       const worldY = (localY / this.mapHeight) * this.worldHeight;
       cam.scrollX = worldX - cam.width / (2 * cam.zoom);
@@ -77,14 +106,15 @@ export class Minimap {
   update(playerX: number, playerY: number) {
     const cam = this.scene.cameras.main;
 
-    // Position minimap at bottom-right of screen.
-    // setScrollFactor(0) keeps it fixed to the camera; we just need screen-space coords.
-    this.container.setPosition(
-      cam.width - this.mapWidth - 10,
-      cam.height - this.mapHeight - 10,
+    // Keep UI camera viewport at bottom-right corner (handles window resize)
+    this.uiCamera.setViewport(
+      cam.width - this.mapWidth - this.margin,
+      cam.height - this.mapHeight - this.margin,
+      this.mapWidth,
+      this.mapHeight,
     );
 
-    // Update viewport indicator
+    // Update viewport indicator (positions relative to container origin)
     const vx = (cam.scrollX / this.worldWidth) * this.mapWidth;
     const vy = (cam.scrollY / this.worldHeight) * this.mapHeight;
     const vw = (cam.width / cam.zoom / this.worldWidth) * this.mapWidth;
@@ -104,6 +134,7 @@ export class Minimap {
   }
 
   destroy() {
+    this.scene.cameras.remove(this.uiCamera);
     this.container.destroy();
   }
 }
