@@ -37,7 +37,7 @@ export class DayNightCycle {
     const height = scene.cameras.main.height;
 
     // Full-screen tint overlay — starts fully transparent
-    this.overlay = scene.add.rectangle(width / 2, height / 2, width * 2, height * 2, OVERLAY_COLORS.dawn)
+    this.overlay = scene.add.rectangle(0, 0, 4000, 4000, OVERLAY_COLORS.dawn)
       .setAlpha(OVERLAY_ALPHA.dawn)
       .setDepth(200)
       .setScrollFactor(0);
