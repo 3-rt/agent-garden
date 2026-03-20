@@ -4,6 +4,7 @@ import { TimeLapse, GardenSnapshot } from '../systems/TimeLapse';
 import { ThemeManager, GardenTheme } from '../systems/ThemeManager';
 import { CameraController } from '../systems/CameraController';
 import { PlayerCharacter } from '../systems/PlayerCharacter';
+import { Minimap } from '../systems/Minimap';
 import { groupPlantsForDisplay, type DisplayPlant } from '../plant-clusters';
 import { buildZoneBeds, scatterPlantsInBed, computeWorldBounds } from '../../../shared/garden-bed-layout';
 import type { AgentRole, GardenBedState, GardenLayoutState, PlantState } from '../../../shared/types';
@@ -44,6 +45,12 @@ export class GardenScene extends Phaser.Scene {
   private themeManager = new ThemeManager();
   private cameraController!: CameraController;
   private playerCharacter!: PlayerCharacter;
+  private minimap!: Minimap;
+  private readonly zoneColors: Record<string, number> = {
+    frontend: 0x66bb6a,
+    backend: 0x42a5f5,
+    tests: 0xffa726,
+  };
   private groundTiles: Phaser.GameObjects.Rectangle[] = [];
   private titleText!: Phaser.GameObjects.Text;
 
@@ -87,6 +94,9 @@ export class GardenScene extends Phaser.Scene {
         this.cameraController,
       );
 
+      this.minimap = new Minimap(this, this.worldWidth, this.worldHeight);
+      this.minimap.updateBeds(this.gardenBeds, this.zoneColors);
+
       // Disable keyboard input when canvas loses focus (e.g. React modal open)
       this.game.canvas.addEventListener('blur', () => {
         if (this.input.keyboard) this.input.keyboard.enabled = false;
@@ -116,6 +126,9 @@ export class GardenScene extends Phaser.Scene {
     }
 
     this.playerCharacter.update(delta);
+
+    const pos = this.playerCharacter.getPosition();
+    this.minimap.update(pos.x, pos.y);
   }
 
   // --- Public API ---
@@ -641,6 +654,13 @@ export class GardenScene extends Phaser.Scene {
     this.worldWidth = bounds.width;
     this.worldHeight = bounds.height;
 
+    if (this.minimap) {
+      this.minimap.setWorldSize(this.worldWidth, this.worldHeight);
+    }
+    if (this.playerCharacter) {
+      this.playerCharacter.setWorldSize(this.worldWidth, this.worldHeight);
+    }
+
     const cam = this.cameras.main;
     cam.setViewport(0, 0, viewportWidth, viewportHeight);
     cam.setBounds(0, 0, this.worldWidth, this.worldHeight);
@@ -724,6 +744,10 @@ export class GardenScene extends Phaser.Scene {
       }
 
       this.bedMap.set(bed.id, g);
+    }
+
+    if (this.minimap) {
+      this.minimap.updateBeds(this.gardenBeds, this.zoneColors);
     }
   }
 
