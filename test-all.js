@@ -691,7 +691,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
     }],
   };
   resizeScene.clearPlants();
-  resizeScene.restoreGardenLayout(restoredBedLayout);
+  resizeScene.restoreGardenLayout(restoredBedLayout, 2);
   const sceneLayout = resizeScene.getGardenLayout();
   assert(sceneLayout.beds.length === 1, 'GardenScene restores persisted bed layout');
   assert(sceneLayout.beds[0].id === 'bed-backend-center', 'GardenScene keeps restored bed ids');
@@ -714,7 +714,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
       plantKeys: ['server.ts'],
     }],
     plants: restoredBedLayout.plants,
-  });
+  }, 2);
   resizeScene.onFileCreated('src/main/services/overflow.ts');
   const overflowSceneLayout = resizeScene.getGardenLayout();
   const overflowPlant = overflowSceneLayout.plants.find((plant) => plant.filename === 'src/main/services/overflow.ts');
@@ -745,7 +745,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
       growthScale: 1.2,
     }],
   };
-  resizeScene.restoreGardenLayout(singleBedLayout);
+  resizeScene.restoreGardenLayout(singleBedLayout, 2);
   const singleBedPlant = Array.from(resizeScene.plantMap.values())[0];
   assert(singleBedPlant.y > singleBedLayout.beds[0].y, 'Single bed-backed plants anchor from the lower half of their bed');
 
@@ -772,7 +772,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
       growthScale: 2.8,
     })),
   };
-  resizeScene.restoreGardenLayout(mergedBedLayout);
+  resizeScene.restoreGardenLayout(mergedBedLayout, 2);
   assert(resizeScene.plantMap.size === 1, 'GardenScene merges dense bed-backed file groups into one visible plant');
   const mergedBedPlant = Array.from(resizeScene.plantMap.values())[0];
   const mergedStem = mergedBedPlant.list[0];
@@ -827,7 +827,7 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
       })),
     ],
   };
-  resizeScene.restoreGardenLayout(splitMergedBedLayout);
+  resizeScene.restoreGardenLayout(splitMergedBedLayout, 2);
   const splitMergedPlants = Array.from(resizeScene.plantMap.values());
   assert(splitMergedPlants.length === 2, 'GardenScene keeps merged display plants split per bed');
   assert(
@@ -894,16 +894,19 @@ assert(new ClaudeApiError('x', 'network').type === 'network', 'network error typ
   assert(gardenGame.game.config.type === 'CANVAS', 'GardenGame prefers the Canvas renderer for restore stability');
 
   let forwardedLayout = null;
+  let forwardedVersion = undefined;
   gardenGame.scene = {
-    restoreGardenLayout(layout) {
+    restoreGardenLayout(layout, version) {
       forwardedLayout = layout;
+      forwardedVersion = version;
     },
     getGardenLayout() {
       return restoredBedLayout;
     },
   };
-  gardenGame.restoreGardenLayout(restoredBedLayout);
+  gardenGame.restoreGardenLayout(restoredBedLayout, 2);
   assert(forwardedLayout.beds[0].id === 'bed-backend-center', 'GardenGame forwards bed-aware restore to the scene');
+  assert(forwardedVersion === 2, 'GardenGame forwards version to scene restoreGardenLayout');
   assert(gardenGame.getGardenLayout().beds[0].id === 'bed-backend-center', 'GardenGame reads bed-aware layout from the scene');
 
   // ============================================================

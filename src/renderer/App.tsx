@@ -107,7 +107,7 @@ export function App() {
             gameRef.current.restoreGardenLayout({
               plants: state.plants,
               beds: state.beds || [],
-            } satisfies GardenLayoutState);
+            } satisfies GardenLayoutState, state.version);
             if (state.stats) {
               setStats(state.stats);
             }

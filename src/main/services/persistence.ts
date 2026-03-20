@@ -43,6 +43,7 @@ export class PersistenceService {
       stats: this.stats,
       theme,
       savedAt: Date.now(),
+      version: 2,
     };
     try {
       writeFileSync(this.statePath, JSON.stringify(state, null, 2));

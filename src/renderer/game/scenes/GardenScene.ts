@@ -536,8 +536,17 @@ export class GardenScene extends Phaser.Scene {
     };
   }
 
-  restoreGardenLayout(layout: GardenLayoutState) {
+  restoreGardenLayout(layout: GardenLayoutState, version?: number) {
     this.clearPlants();
+
+    if (!version || version < 2) {
+      // Old viewport-relative positions — rebuild from scratch
+      for (const plant of (layout.plants || [])) {
+        this.onFileCreated(plant.filename, plant.directory, plant.creatorRole, plant.growthScale);
+      }
+      return;
+    }
+
     this.gardenBeds = (layout.beds || []).map((bed) => ({
       ...bed,
       directoryGroups: [...bed.directoryGroups],

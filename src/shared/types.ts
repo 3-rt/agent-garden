@@ -153,6 +153,7 @@ export interface GardenState extends GardenLayoutState {
   stats: GardenStats;
   theme: string;
   savedAt: number;
+  version?: number; // 2 = world-space coordinates
 }
 
 export type ActivityLogScope = 'project' | 'agent';

@@ -104,8 +104,8 @@ export class GardenGame {
     this.scene?.restorePlants(plants);
   }
 
-  restoreGardenLayout(layout: GardenLayoutState) {
-    this.scene?.restoreGardenLayout(layout);
+  restoreGardenLayout(layout: GardenLayoutState, version?: number) {
+    this.scene?.restoreGardenLayout(layout, version);
   }
 
   getPlantCount(): number {
