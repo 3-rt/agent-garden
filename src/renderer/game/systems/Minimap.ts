@@ -46,16 +46,14 @@ export class Minimap {
       this.playerDot,
     ]);
     this.container.setDepth(300);
-    // No setScrollFactor(0) — we position in world-space each frame instead,
-    // which avoids the zoom-induced drift that scrollFactor(0) causes.
+    this.container.setScrollFactor(0);
 
     // Click on minimap to teleport camera
     this.background.setInteractive();
     this.background.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      // Convert screen-space click to minimap-local coordinates
-      const scale = this.container.scaleX;
-      const localX = (pointer.worldX - this.container.x) / scale;
-      const localY = (pointer.worldY - this.container.y) / scale;
+      // Container uses scrollFactor(0), so use screen-space pointer coords
+      const localX = pointer.x - this.container.x;
+      const localY = pointer.y - this.container.y;
       const worldX = (localX / this.mapWidth) * this.worldWidth;
       const worldY = (localY / this.mapHeight) * this.worldHeight;
       cam.scrollX = worldX - cam.width / (2 * cam.zoom);
@@ -79,12 +77,12 @@ export class Minimap {
   update(playerX: number, playerY: number) {
     const cam = this.scene.cameras.main;
 
-    // Position minimap in world-space so it appears at a fixed screen position
-    // (bottom-right corner). Screen-to-world: worldX = scrollX + screenX / zoom
-    const invZoom = 1 / cam.zoom;
-    this.container.setScale(invZoom);
-    this.container.x = cam.scrollX + (cam.width - this.mapWidth - 10) * invZoom;
-    this.container.y = cam.scrollY + (cam.height - this.mapHeight - 10) * invZoom;
+    // Position minimap at bottom-right of screen.
+    // setScrollFactor(0) keeps it fixed to the camera; we just need screen-space coords.
+    this.container.setPosition(
+      cam.width - this.mapWidth - 10,
+      cam.height - this.mapHeight - 10,
+    );
 
     // Update viewport indicator
     const vx = (cam.scrollX / this.worldWidth) * this.mapWidth;
