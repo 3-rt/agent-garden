@@ -1015,20 +1015,20 @@ export class GardenScene extends Phaser.Scene {
       ? { shape: 'tulip', stemColor: 0x8d6e63, primaryColor: 0xce93d8, accentColor: 0xce93d8 }
       : this.getPlantStyle(ext);
 
-    const stem = this.add.rectangle(0, 0, 4, 0, style.stemColor).setOrigin(0.5, 1);
+    const targetHeight = Math.round((20 + Math.random() * 20) * (growthScale || 1));
+    const stem = this.add.rectangle(0, -targetHeight / 2, 4, targetHeight, style.stemColor);
     const container = this.add.container(x, y, [stem]).setDepth(2);
 
-    const targetHeight = Math.round((20 + Math.random() * 20) * (growthScale || 1));
-
     if (animate) {
+      stem.height = 0;
+      stem.y = 0;
       this.tweens.add({
         targets: stem,
         height: { from: 0, to: targetHeight },
+        y: { from: 0, to: -targetHeight / 2 },
         duration: 800,
         ease: 'Back.easeOut',
       });
-    } else {
-      stem.height = targetHeight;
     }
 
     const addTop = () => {
@@ -1075,18 +1075,19 @@ export class GardenScene extends Phaser.Scene {
 
   private growMergedPlant(displayPlant: DisplayPlant, animate: boolean): Phaser.GameObjects.Container {
     const { x, y, targetHeight } = this.getMergedPlantPlacement(displayPlant);
-    const stem = this.add.rectangle(0, 0, 8, 0, 0x6d4c41).setOrigin(0.5, 1);
+    const stem = this.add.rectangle(0, -targetHeight / 2, 8, targetHeight, 0x6d4c41);
     const container = this.add.container(x, y, [stem]).setDepth(2);
 
     if (animate) {
+      stem.height = 0;
+      stem.y = 0;
       this.tweens.add({
         targets: stem,
         height: { from: 0, to: targetHeight },
+        y: { from: 0, to: -targetHeight / 2 },
         duration: 900,
         ease: 'Back.easeOut',
       });
-    } else {
-      stem.height = targetHeight;
     }
 
     const addCanopy = () => {

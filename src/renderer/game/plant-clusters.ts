@@ -376,10 +376,37 @@ export function groupPlantsForDisplay(
     visiblePlants.push(...buildMergedRemainders(zone, remainingGroups, resolved.minGroupSize));
   }
 
-  visiblePlants.sort((a, b) => a.zone.localeCompare(b.zone) || a.x - b.x || a.y - b.y || a.label.localeCompare(b.label));
+  // Merge display plants that share the same bed to prevent overlapping
+  const bedMerged = new Map<string, DisplayPlant>();
+  const noBedPlants: DisplayPlant[] = [];
+
+  for (const dp of visiblePlants) {
+    if (!dp.bedId) {
+      noBedPlants.push(dp);
+      continue;
+    }
+    const existing = bedMerged.get(dp.bedId);
+    if (!existing) {
+      bedMerged.set(dp.bedId, dp);
+      continue;
+    }
+    // Merge into existing: combine filenames, keep highest-signal label
+    existing.filenames = [...existing.filenames, ...dp.filenames].sort();
+    existing.fileCount = existing.filenames.length;
+    if (existing.kind === 'single') {
+      existing.kind = 'merged';
+      existing.id = `merged:${existing.zone}:${existing.bedId}:combined`;
+    }
+    if (dp.growthScale && (!existing.growthScale || dp.growthScale > existing.growthScale)) {
+      existing.growthScale = dp.growthScale;
+    }
+  }
+
+  const dedupedPlants = [...bedMerged.values(), ...noBedPlants];
+  dedupedPlants.sort((a, b) => a.zone.localeCompare(b.zone) || a.x - b.x || a.y - b.y || a.label.localeCompare(b.label));
 
   return {
     totalFiles: plants.length,
-    visiblePlants,
+    visiblePlants: dedupedPlants,
   };
 }
