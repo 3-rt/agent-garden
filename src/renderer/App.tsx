@@ -61,7 +61,7 @@ export function App() {
     const restoreGeneratedGarden = async (themeId?: string) => {
       const generatedLayout = await window.electronAPI?.getInitialGarden();
       if (!generatedLayout || !generatedLayout.plants.length || !gameRef.current) return;
-      gameRef.current.restoreGardenLayout(generatedLayout);
+      gameRef.current.restoreGardenLayout(generatedLayout, 2);
       window.electronAPI?.saveGardenState(generatedLayout, themeId || gameRef.current.getThemeId());
       setStats((prev) => ({ ...prev, filesCreated: generatedLayout.plants.length }));
     };

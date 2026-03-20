@@ -15,15 +15,24 @@ export class CameraController {
   private readonly zoomStep = 0.1;
   private readonly followLerp = 0.1;
 
+  private wheelHandler: Function;
+  private pointerDownHandler: Function;
+  private pointerMoveHandler: Function;
+  private pointerUpHandler: Function;
+
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.camera = scene.cameras.main;
+    this.wheelHandler = () => {};
+    this.pointerDownHandler = () => {};
+    this.pointerMoveHandler = () => {};
+    this.pointerUpHandler = () => {};
     this.setupInput();
   }
 
   private setupInput() {
     // Scroll wheel zoom — centered on mouse pointer position
-    this.scene.input.on('wheel', (pointer: Phaser.Input.Pointer, _gameObjects: any[], _deltaX: number, deltaY: number) => {
+    this.wheelHandler = (pointer: Phaser.Input.Pointer, _gameObjects: any[], _deltaX: number, deltaY: number) => {
       const oldZoom = this.camera.zoom;
       const newZoom = Phaser.Math.Clamp(
         oldZoom + (deltaY > 0 ? -this.zoomStep : this.zoomStep),
@@ -41,10 +50,11 @@ export class CameraController {
       this.camera.zoom = newZoom;
       this.camera.scrollX = newScrollX;
       this.camera.scrollY = newScrollY;
-    });
+    };
+    this.scene.input.on('wheel', this.wheelHandler);
 
     // Right-click / middle-click drag to pan
-    this.scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    this.pointerDownHandler = (pointer: Phaser.Input.Pointer) => {
       if (pointer.rightButtonDown() || pointer.middleButtonDown()) {
         this.isDragging = true;
         this.dragStartX = pointer.x;
@@ -53,21 +63,24 @@ export class CameraController {
         this.cameraStartY = this.camera.scrollY;
         this.detachFollow();
       }
-    });
+    };
+    this.scene.input.on('pointerdown', this.pointerDownHandler);
 
-    this.scene.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+    this.pointerMoveHandler = (pointer: Phaser.Input.Pointer) => {
       if (!this.isDragging) return;
       const dx = (this.dragStartX - pointer.x) / this.camera.zoom;
       const dy = (this.dragStartY - pointer.y) / this.camera.zoom;
       this.camera.scrollX = this.cameraStartX + dx;
       this.camera.scrollY = this.cameraStartY + dy;
-    });
+    };
+    this.scene.input.on('pointermove', this.pointerMoveHandler);
 
-    this.scene.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+    this.pointerUpHandler = (pointer: Phaser.Input.Pointer) => {
       if (pointer.rightButtonReleased() || pointer.middleButtonReleased()) {
         this.isDragging = false;
       }
-    });
+    };
+    this.scene.input.on('pointerup', this.pointerUpHandler);
 
     // Disable right-click context menu on the canvas
     this.scene.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -93,16 +106,16 @@ export class CameraController {
   snapToTarget() {
     if (this.followTarget) {
       const target = this.followTarget as any;
-      this.camera.scrollX = target.x - this.camera.width / 2;
-      this.camera.scrollY = target.y - this.camera.height / 2;
+      this.camera.scrollX = target.x - this.camera.width / (2 * this.camera.zoom);
+      this.camera.scrollY = target.y - this.camera.height / (2 * this.camera.zoom);
       this.reattachFollow();
     }
   }
 
   destroy() {
-    this.scene.input.off('wheel');
-    this.scene.input.off('pointerdown');
-    this.scene.input.off('pointermove');
-    this.scene.input.off('pointerup');
+    this.scene.input.off('wheel', this.wheelHandler);
+    this.scene.input.off('pointerdown', this.pointerDownHandler);
+    this.scene.input.off('pointermove', this.pointerMoveHandler);
+    this.scene.input.off('pointerup', this.pointerUpHandler);
   }
 }
