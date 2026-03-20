@@ -113,8 +113,8 @@ export class CameraController {
   snapToTarget() {
     if (this.followTarget) {
       const target = this.followTarget as any;
-      this.camera.scrollX = target.x - this.camera.width / (2 * this.camera.zoom);
-      this.camera.scrollY = target.y - this.camera.height / (2 * this.camera.zoom);
+      this.camera.scrollX = target.x - this.camera.width * 0.5;
+      this.camera.scrollY = target.y - this.camera.height * 0.5;
       this.reattachFollow();
     }
   }

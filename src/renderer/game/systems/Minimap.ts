@@ -90,8 +90,8 @@ export class Minimap {
       if (localX < 0 || localY < 0 || localX > this.mapWidth || localY > this.mapHeight) return;
       const worldX = (localX / this.mapWidth) * this.worldWidth;
       const worldY = (localY / this.mapHeight) * this.worldHeight;
-      cam.scrollX = worldX - cam.width / (2 * cam.zoom);
-      cam.scrollY = worldY - cam.height / (2 * cam.zoom);
+      cam.scrollX = worldX - cam.width * 0.5;
+      cam.scrollY = worldY - cam.height * 0.5;
     });
   }
 
@@ -123,11 +123,12 @@ export class Minimap {
       vpH,
     );
 
-    // Update viewport indicator (positions relative to container origin)
-    const vx = (cam.scrollX / this.worldWidth) * this.mapWidth;
-    const vy = (cam.scrollY / this.worldHeight) * this.mapHeight;
-    const vw = (cam.width / cam.zoom / this.worldWidth) * this.mapWidth;
-    const vh = (cam.height / cam.zoom / this.worldHeight) * this.mapHeight;
+    // Update viewport indicator using worldView (accounts for zoom correctly)
+    const wv = cam.worldView;
+    const vx = (wv.x / this.worldWidth) * this.mapWidth;
+    const vy = (wv.y / this.worldHeight) * this.mapHeight;
+    const vw = (wv.width / this.worldWidth) * this.mapWidth;
+    const vh = (wv.height / this.worldHeight) * this.mapHeight;
     this.viewportIndicator.setPosition(vx, vy);
     this.viewportIndicator.setSize(vw, vh);
 
