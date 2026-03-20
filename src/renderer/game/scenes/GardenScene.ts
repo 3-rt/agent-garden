@@ -553,6 +553,7 @@ export class GardenScene extends Phaser.Scene {
       directoryGroups: [...bed.directoryGroups],
       plantKeys: [...bed.plantKeys],
     }));
+    this.recomputeWorldBounds();
     this.renderBedVisuals();
     this.restorePlants(layout.plants || []);
   }
@@ -686,6 +687,29 @@ export class GardenScene extends Phaser.Scene {
     if (this.activeDirectories.size > 1) {
       this.refreshDirectoryLabels();
     }
+  }
+
+  private recomputeWorldBounds() {
+    const cam = this.cameras.main;
+    const viewportWidth = cam.width || 800;
+    const viewportHeight = cam.height || 600;
+    const bounds = computeWorldBounds({
+      beds: this.gardenBeds,
+      minWidth: viewportWidth,
+      minHeight: viewportHeight,
+    });
+    this.worldWidth = bounds.width;
+    this.worldHeight = bounds.height;
+
+    if (this.minimap) {
+      this.minimap.setWorldSize(this.worldWidth, this.worldHeight);
+    }
+    if (this.playerCharacter) {
+      this.playerCharacter.setWorldSize(this.worldWidth, this.worldHeight);
+    }
+
+    this.rebuildGround();
+    this.titleText.setPosition(this.worldWidth / 2, this.worldHeight - 12);
   }
 
   private rebuildGround() {
@@ -907,6 +931,7 @@ export class GardenScene extends Phaser.Scene {
       plantKeys: [],
     };
     this.gardenBeds.push(overflowBed);
+    this.recomputeWorldBounds();
     this.renderBedVisuals();
     return overflowBed;
   }
