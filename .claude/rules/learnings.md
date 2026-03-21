@@ -16,6 +16,7 @@ Hard-won lessons from building this project. Claude reads this every session.
 - Place UI camera objects at a far-off offset (e.g. 100000, 100000) so the main camera never renders them; use `cam.ignore()` as an extra safeguard
 - World bounds must be recomputed after any operation that adds/restores garden beds (restoreGardenLayout, addOverflowBed) — otherwise player movement stays clamped to the old smaller bounds
 - HiDPI/Retina rendering: Phaser 3 Canvas doesn't auto-scale for devicePixelRatio. Use `Scale.NONE` with canvas at `css * dpr` resolution, CSS-scale it back via `style.width/height: 100%`, set camera zoom to `dpr`, and use ResizeObserver for resize. All game coordinates stay in CSS pixels; only camera viewport, UI camera positions, and pointer coords need dpr conversion. DPR constant lives in `src/renderer/game/dpr.ts` to avoid circular imports.
+- Phaser's `cam.scrollX` does NOT represent the visible world edge when zoom != 1 — use `cam.worldView` for the actual visible rectangle in world coordinates. Similarly, to center the camera on a world point, set `scrollX = worldX - cam.width * 0.5` (matching Phaser's internal follow convention), NOT `worldX - cam.width / (2 * cam.zoom)`.
 
 ## Electron IPC
 
