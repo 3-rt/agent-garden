@@ -47,6 +47,10 @@ export class PlayerCharacter {
   update(delta: number) {
     if (!this.scene.input.keyboard?.enabled) return;
 
+    // Don't capture movement keys while user is typing in a UI input
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)) return;
+
     let dx = 0;
     let dy = 0;
 
