@@ -60,6 +60,11 @@ export class GardenScene extends Phaser.Scene {
   private readonly mergeThreshold = 24;
   private readonly mergeGroupSize = 3;
 
+  // Batching: collect newly-created plant keys and rebuild once after a short delay
+  private pendingAnimatedKeys = new Set<string>();
+  private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly REBUILD_DEBOUNCE_MS = 150;
+
   constructor() {
     super({ key: 'GardenScene' });
   }
@@ -338,7 +343,7 @@ export class GardenScene extends Phaser.Scene {
       creatorRole,
       growthScale,
     });
-    this.rebuildPlantDisplay(new Set([key]));
+    this.schedulePlantRebuild(key);
   }
 
   private trackDirectory(directory: string) {
@@ -420,30 +425,34 @@ export class GardenScene extends Phaser.Scene {
         bed.plantKeys = bed.plantKeys.filter((plantKey) => plantKey !== filename);
       }
     }
-    this.rebuildPlantDisplay();
+    this.schedulePlantRebuild();
   }
 
   onFileModified(filename: string) {
-    const matchingDisplayKeys = new Set<string>();
-    for (const [rawKey, displayKey] of this.plantDisplayIndex) {
-      if (rawKey === filename || rawKey.endsWith(`\u0000${filename}`)) {
-        matchingDisplayKeys.add(displayKey);
+    // Fast path: try direct lookup first (most common case)
+    let displayKey = this.plantDisplayIndex.get(filename);
+    if (!displayKey) {
+      // Fallback: search for directory-prefixed keys
+      for (const [rawKey, dk] of this.plantDisplayIndex) {
+        if (rawKey.endsWith(`\u0000${filename}`)) {
+          displayKey = dk;
+          break;
+        }
       }
     }
+    if (!displayKey) return;
 
-    for (const displayKey of matchingDisplayKeys) {
-      const plant = this.plantMap.get(displayKey);
-      if (!plant) continue;
-      this.tweens.add({
-        targets: plant,
-        scaleX: 1.3,
-        scaleY: 1.3,
-        duration: 200,
-        yoyo: true,
-        ease: 'Sine.easeInOut',
-      });
-      this.emitParticles(plant.x, plant.y, 3);
-    }
+    const plant = this.plantMap.get(displayKey);
+    if (!plant) return;
+    this.tweens.add({
+      targets: plant,
+      scaleX: 1.3,
+      scaleY: 1.3,
+      duration: 200,
+      yoyo: true,
+      ease: 'Sine.easeInOut',
+    });
+    this.emitParticles(plant.x, plant.y, 3);
   }
 
   // --- Theme ---
@@ -788,6 +797,17 @@ export class GardenScene extends Phaser.Scene {
     }
   }
 
+  private schedulePlantRebuild(key?: string) {
+    if (key) this.pendingAnimatedKeys.add(key);
+    if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
+    this.rebuildTimer = setTimeout(() => {
+      this.rebuildTimer = null;
+      const keys = new Set(this.pendingAnimatedKeys);
+      this.pendingAnimatedKeys.clear();
+      this.rebuildPlantDisplay(keys);
+    }, this.REBUILD_DEBOUNCE_MS);
+  }
+
   private rebuildPlantDisplay(animatedRawKeys: Set<string> = new Set()) {
     for (const plant of this.plantMap.values()) {
       plant.destroy();
@@ -1026,7 +1046,7 @@ export class GardenScene extends Phaser.Scene {
       creatorRole,
       growthScale,
     });
-    this.rebuildPlantDisplay(new Set([key]));
+    this.schedulePlantRebuild(key);
   }
 
   private drawPlantTop(style: PlantStyle): Phaser.GameObjects.Graphics {

@@ -46,6 +46,11 @@ const MAX_VISIBLE_PER_ZONE = 3;
 
 const LOW_SIGNAL_FILE_PATTERNS = [
   /^readme(\..+)?$/i,
+  /^license(\..+)?$/i,
+  /^changelog(\..+)?$/i,
+  /^contributing(\..+)?$/i,
+  /^code.of.conduct(\..+)?$/i,
+  // Lock files
   /^package-lock\.json$/i,
   /^yarn\.lock$/i,
   /^pnpm-lock\.ya?ml$/i,
@@ -53,6 +58,16 @@ const LOW_SIGNAL_FILE_PATTERNS = [
   /^pipfile\.lock$/i,
   /^cargo\.lock$/i,
   /^composer\.lock$/i,
+  /^gemfile\.lock$/i,
+  /^go\.sum$/i,
+  // Config / dotfiles (low signal for garden display)
+  /^\..+rc(\..*)?$/i,          // .eslintrc, .prettierrc, .babelrc, etc
+  /^\..+ignore$/i,             // .gitignore, .dockerignore, .eslintignore
+  /^\.editorconfig$/i,
+  /^\.browserslistrc$/i,
+  /^tsconfig(\..+)?\.json$/i,
+  /^\.DS_Store$/,
+  /^Thumbs\.db$/i,
 ];
 
 const LOW_SIGNAL_SEGMENTS = new Set([
@@ -60,12 +75,38 @@ const LOW_SIGNAL_SEGMENTS = new Set([
   'node_modules',
   'dist',
   'build',
+  'out',
   'coverage',
-  '.next',
-  '.cache',
+  'venv',
+  '.venv',
+  'env',
+  'site-packages',
+  '.eggs',
+  '.mypy_cache',
+  '.ruff_cache',
   '.pytest_cache',
+  '.tox',
+  'vendor',
+  'target',
+  '.gradle',
+  '.mvn',
+  'bin',
+  'obj',
+  '.next',
+  '.nuxt',
+  '.turbo',
+  '.svelte-kit',
+  '.output',
+  '.cache',
+  '.parcel-cache',
+  '.vercel',
+  '.netlify',
   'tmp',
   'temp',
+  '.tmp',
+  '.temp',
+  'logs',
+  'test-build',
 ]);
 
 const HIGH_SIGNAL_SEGMENTS = new Map<string, number>([

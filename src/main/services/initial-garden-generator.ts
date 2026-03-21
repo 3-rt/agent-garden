@@ -12,6 +12,7 @@ const IGNORE_DIRS = new Set([
   'node_modules',
   'dist',
   'build',
+  'out',
   'coverage',
   'test-build',
   // Python
@@ -21,31 +22,52 @@ const IGNORE_DIRS = new Set([
   '__pycache__',
   'site-packages',
   '.eggs',
+  '.mypy_cache',
+  '.ruff_cache',
+  '.pytest_cache',
+  '.tox',
   // Ruby
   'vendor',
   // Java / JVM
   'target',
   '.gradle',
+  '.mvn',
   // Rust
   // Go
-  // General artifacts
+  // .NET
+  'bin',
+  'obj',
+  // General artifacts & caches
   '.cache',
   '.tmp',
   '.temp',
+  'tmp',
+  'temp',
   '.parcel-cache',
   '.next',
   '.nuxt',
   '.turbo',
   '.svelte-kit',
   '.output',
+  '.vercel',
+  '.netlify',
+  '.terraform',
+  // Logs
+  'logs',
 ]);
 
 const LOW_SIGNAL_FILES = [
+  // Lock files
   /package-lock\.json$/i,
   /yarn\.lock$/i,
   /pnpm-lock\.ya?ml$/i,
-  /\.min\.(js|css)$/i,
-  /\.snap$/i,
+  /poetry\.lock$/i,
+  /pipfile\.lock$/i,
+  /cargo\.lock$/i,
+  /composer\.lock$/i,
+  /gemfile\.lock$/i,
+  /go\.sum$/i,
+  // Compiled / binary
   /\.pyc$/i,
   /\.pyo$/i,
   /\.class$/i,
@@ -57,8 +79,25 @@ const LOW_SIGNAL_FILES = [
   /\.whl$/i,
   /\.egg$/i,
   /\.jar$/i,
+  // Generated / minified
+  /\.min\.(js|css)$/i,
+  /\.snap$/i,
   /\.map$/i,
   /\.d\.ts$/i,
+  /\.tsbuildinfo$/i,
+  /\.eslintcache$/i,
+  // Images / media / fonts (not source code)
+  /\.(png|jpe?g|gif|ico|svg|webp|bmp|tiff?)$/i,
+  /\.(woff2?|ttf|eot|otf)$/i,
+  /\.(mp3|mp4|wav|ogg|webm|avi|mov)$/i,
+  /\.(pdf|zip|tar|gz|bz2|rar|7z)$/i,
+  // OS / IDE junk
+  /\.DS_Store$/,
+  /Thumbs\.db$/i,
+  /desktop\.ini$/i,
+  // Log files
+  /\.log$/i,
+  /npm-debug\.log/i,
 ];
 
 const PATH_BONUSES: Array<[RegExp, number]> = [
