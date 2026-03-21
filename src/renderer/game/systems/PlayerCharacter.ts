@@ -31,13 +31,15 @@ export class PlayerCharacter {
     // Input
     if (scene.input.keyboard) {
       this.cursors = scene.input.keyboard.createCursorKeys();
+      // Pass false for enableCapture so Phaser doesn't preventDefault —
+      // this lets WASD/Space propagate to HTML input fields when focused
       this.wasd = {
-        W: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-        A: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-        S: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-        D: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+        W: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W, false),
+        A: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A, false),
+        S: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S, false),
+        D: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D, false),
       };
-      this.spaceKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+      this.spaceKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE, false);
     }
 
     // Camera follows player
