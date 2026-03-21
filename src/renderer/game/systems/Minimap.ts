@@ -16,17 +16,14 @@ export class Minimap {
   private playerDot: Phaser.GameObjects.Arc;
   private bedGraphics: Phaser.GameObjects.Graphics;
 
+  private readonly mapWidth = 200;
+  private readonly mapHeight = 150;
   private readonly margin = 10;
-  // Content bounds — computed from beds, used for mapping
+  // Content bounds — tight fit around beds
   private contentX = 0;
   private contentY = 0;
   private contentWidth: number;
   private contentHeight: number;
-  // Actual minimap pixel dimensions (recomputed to match content aspect ratio)
-  private mapWidth = 200;
-  private mapHeight = 150;
-  private readonly maxMapWidth = 200;
-  private readonly maxMapHeight = 150;
 
   constructor(scene: Phaser.Scene, worldWidth: number, worldHeight: number) {
     this.scene = scene;
@@ -118,23 +115,12 @@ export class Minimap {
         if (top < minY) minY = top;
         if (bottom > maxY) maxY = bottom;
       }
-      const pad = 20; // small padding around beds
+      const pad = 20;
       this.contentX = minX - pad;
       this.contentY = minY - pad;
       this.contentWidth = maxX - minX + pad * 2;
       this.contentHeight = maxY - minY + pad * 2;
     }
-
-    // Resize minimap to match content aspect ratio
-    const aspect = this.contentWidth / this.contentHeight;
-    if (aspect > this.maxMapWidth / this.maxMapHeight) {
-      this.mapWidth = this.maxMapWidth;
-      this.mapHeight = Math.round(this.maxMapWidth / aspect);
-    } else {
-      this.mapHeight = this.maxMapHeight;
-      this.mapWidth = Math.round(this.maxMapHeight * aspect);
-    }
-    this.background.setSize(this.mapWidth, this.mapHeight);
 
     // Draw bed markers
     this.bedGraphics.clear();
@@ -180,8 +166,7 @@ export class Minimap {
   }
 
   setWorldSize(_width: number, _height: number) {
-    // Content bounds are now computed from beds in updateBeds(),
-    // so world size is no longer needed here.
+    // Content bounds are computed from beds in updateBeds()
   }
 
   destroy() {
