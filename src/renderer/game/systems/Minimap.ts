@@ -124,20 +124,24 @@ export class Minimap {
     );
 
     // Update viewport indicator using worldView (accounts for zoom correctly)
-    // Clamp to minimap bounds so it doesn't overflow outside the background
     const wv = cam.worldView;
-    const rawX = (wv.x / this.worldWidth) * this.mapWidth;
-    const rawY = (wv.y / this.worldHeight) * this.mapHeight;
     const rawW = (wv.width / this.worldWidth) * this.mapWidth;
     const rawH = (wv.height / this.worldHeight) * this.mapHeight;
 
-    const vx = Math.max(0, rawX);
-    const vy = Math.max(0, rawY);
-    const vw = Math.min(this.mapWidth - vx, rawW - (vx - rawX));
-    const vh = Math.min(this.mapHeight - vy, rawH - (vy - rawY));
-
-    this.viewportIndicator.setPosition(vx, vy);
-    this.viewportIndicator.setSize(Math.max(0, vw), Math.max(0, vh));
+    // Hide indicator when viewport covers the whole minimap — it's not useful
+    if (rawW >= this.mapWidth && rawH >= this.mapHeight) {
+      this.viewportIndicator.setVisible(false);
+    } else {
+      this.viewportIndicator.setVisible(true);
+      const rawX = (wv.x / this.worldWidth) * this.mapWidth;
+      const rawY = (wv.y / this.worldHeight) * this.mapHeight;
+      const vx = Math.max(0, rawX);
+      const vy = Math.max(0, rawY);
+      const vw = Math.min(this.mapWidth, rawW) - Math.max(0, vx - rawX);
+      const vh = Math.min(this.mapHeight, rawH) - Math.max(0, vy - rawY);
+      this.viewportIndicator.setPosition(vx, vy);
+      this.viewportIndicator.setSize(Math.max(0, vw), Math.max(0, vh));
+    }
 
     // Update player dot
     const px = (playerX / this.worldWidth) * this.mapWidth;
