@@ -131,13 +131,27 @@ export class ClaudeCodeTracker extends EventEmitter {
     const sessionId = `pid-${pid}`;
     const processSession = this.sessions.get(sessionId);
     if (processSession) {
+      // If a hooks session exists for the same directory, let it take over
+      const hasHookSession = processSession.directory && Array.from(this.sessions.values()).some(
+        (s) => s.source === 'hooks' && s.directory === processSession.directory && s.sessionId !== sessionId,
+      );
       this.removeSession(sessionId, 'process exited');
+      // Re-emit the hook session so the renderer re-adds the sprite
+      if (hasHookSession) {
+        for (const s of this.sessions.values()) {
+          if (s.source === 'hooks' && s.directory === processSession.directory) {
+            this.emit('connected', { ...s });
+            break;
+          }
+        }
+      }
       return;
     }
 
-    for (const [existingSessionId, session] of this.sessions) {
+    // PID matched a hook/spawned session — just clear the PID, don't remove
+    for (const session of this.sessions.values()) {
       if (session.processPid === pid) {
-        this.removeSession(existingSessionId, 'process exited');
+        session.processPid = undefined;
         return;
       }
     }

@@ -14,6 +14,30 @@ const IGNORE_DIRS = new Set([
   'build',
   'coverage',
   'test-build',
+  // Python
+  'venv',
+  '.venv',
+  'env',
+  '__pycache__',
+  'site-packages',
+  '.eggs',
+  // Ruby
+  'vendor',
+  // Java / JVM
+  'target',
+  '.gradle',
+  // Rust
+  // Go
+  // General artifacts
+  '.cache',
+  '.tmp',
+  '.temp',
+  '.parcel-cache',
+  '.next',
+  '.nuxt',
+  '.turbo',
+  '.svelte-kit',
+  '.output',
 ]);
 
 const LOW_SIGNAL_FILES = [
@@ -22,6 +46,19 @@ const LOW_SIGNAL_FILES = [
   /pnpm-lock\.ya?ml$/i,
   /\.min\.(js|css)$/i,
   /\.snap$/i,
+  /\.pyc$/i,
+  /\.pyo$/i,
+  /\.class$/i,
+  /\.o$/i,
+  /\.so$/i,
+  /\.dylib$/i,
+  /\.dll$/i,
+  /\.exe$/i,
+  /\.whl$/i,
+  /\.egg$/i,
+  /\.jar$/i,
+  /\.map$/i,
+  /\.d\.ts$/i,
 ];
 
 const PATH_BONUSES: Array<[RegExp, number]> = [
@@ -60,6 +97,7 @@ export function shouldIgnoreRelativePath(relativePath: string): boolean {
   const segments = normalized.split('/');
   if (segments.some((segment) => IGNORE_DIRS.has(segment))) return true;
   if (segments.some((segment) => segment.startsWith('.') && segment.length > 1)) return true;
+  if (segments.some((segment) => segment.endsWith('.egg-info'))) return true;
   return LOW_SIGNAL_FILES.some((pattern) => pattern.test(normalized));
 }
 

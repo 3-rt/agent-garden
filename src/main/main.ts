@@ -8,7 +8,7 @@ import { ClaudeCodeTracker } from './services/claude-code-tracker';
 import { ProcessScanner } from './services/process-scanner';
 import { ClaudeCodeManager } from './services/claude-code-manager';
 import { HeadGardener } from './services/head-gardener';
-import { generateInitialGardenLayout } from './services/initial-garden-generator';
+import { generateInitialGardenLayout, shouldIgnoreRelativePath } from './services/initial-garden-generator';
 
 import type { AgentRole } from '../shared/types';
 
@@ -71,6 +71,9 @@ function saveConfig(config: Partial<AppConfig>) {
 
 function startWatcher(directory: string) {
   watcher.start(directory, (event) => {
+    // Filter out low-signal / artifact files (same rules as initial garden generation)
+    if (shouldIgnoreRelativePath(event.path)) return;
+
     // Enrich with agent correlation
     if (event.type === 'created' || event.type === 'modified') {
       const filename = event.path.split('/').pop() || event.path;

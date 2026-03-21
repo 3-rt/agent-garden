@@ -49,11 +49,22 @@ export class ClaudeCodeManager extends EventEmitter {
     const agentId = `cc-${sessionId}`;
     const directory = options.directory || process.cwd();
 
-    // Build claude command args
-    const args: string[] = ['--print'];
-    if (options.prompt) {
-      args.push(options.prompt);
+    // No prompt → open interactive claude in a terminal;
+    // hooks/process scanner will detect the session automatically
+    if (!options.prompt) {
+      const script = `cd "${directory}" && claude`;
+      if (process.platform === 'darwin') {
+        spawn('osascript', ['-e', `tell app "Terminal" to do script "${script.replace(/"/g, '\\"')}"`], { detached: true });
+      } else if (process.platform === 'linux') {
+        spawn('x-terminal-emulator', ['-e', `bash -c '${script}'`], { detached: true });
+      } else {
+        spawn('cmd', ['/c', 'start', 'cmd', '/k', script], { detached: true });
+      }
+      return { agentId, sessionId };
     }
+
+    // With prompt → run headless
+    const args: string[] = ['--print', options.prompt];
 
     const child = spawn(claudeCmd, args, {
       cwd: directory,

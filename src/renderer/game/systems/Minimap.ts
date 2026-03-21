@@ -43,13 +43,13 @@ export class Minimap {
     );
     this.uiCamera.setScroll(UI_OFFSET_X, UI_OFFSET_Y);
     this.uiCamera.setZoom(dpr);
-    this.uiCamera.setBackgroundColor(0x000000);
-    this.uiCamera.setAlpha(0.6);
+    this.uiCamera.setBackgroundColor('rgba(0,0,0,0)');
+    this.uiCamera.transparent = true;
 
     // Background (positioned at 0,0 relative to container)
     this.background = scene.add.rectangle(
       0, 0,
-      this.mapWidth, this.mapHeight, 0x000000, 0.6,
+      this.mapWidth, this.mapHeight, 0x000000, 0.25,
     ).setOrigin(0, 0);
 
     // Bed markers
