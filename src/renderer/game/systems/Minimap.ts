@@ -19,16 +19,13 @@ export class Minimap {
   private readonly mapWidth = 200;
   private readonly mapHeight = 150;
   private readonly margin = 10;
-  // Content bounds — tight fit around beds
-  private contentX = 0;
-  private contentY = 0;
-  private contentWidth: number;
-  private contentHeight: number;
+  private worldWidth: number;
+  private worldHeight: number;
 
   constructor(scene: Phaser.Scene, worldWidth: number, worldHeight: number) {
     this.scene = scene;
-    this.contentWidth = worldWidth;
-    this.contentHeight = worldHeight;
+    this.worldWidth = worldWidth;
+    this.worldHeight = worldHeight;
 
     const cam = scene.cameras.main;
     const dpr = GAME_DPR;
@@ -91,44 +88,20 @@ export class Minimap {
       const localX = (pointer.x - vpX) / GAME_DPR;
       const localY = (pointer.y - vpY) / GAME_DPR;
       if (localX < 0 || localY < 0 || localX > this.mapWidth || localY > this.mapHeight) return;
-      const worldX = this.contentX + (localX / this.mapWidth) * this.contentWidth;
-      const worldY = this.contentY + (localY / this.mapHeight) * this.contentHeight;
+      const worldX = (localX / this.mapWidth) * this.worldWidth;
+      const worldY = (localY / this.mapHeight) * this.worldHeight;
       cam.scrollX = worldX - cam.width * 0.5;
       cam.scrollY = worldY - cam.height * 0.5;
     });
   }
 
   updateBeds(beds: GardenBedState[], zoneColors: Record<string, number>) {
-    // Compute tight content bounds from beds
-    if (beds.length > 0) {
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      for (const bed of beds) {
-        const left = bed.x - bed.width / 2;
-        const right = bed.x + bed.width / 2;
-        const top = bed.y - bed.height / 2;
-        const bottom = bed.y + bed.height / 2;
-        if (left < minX) minX = left;
-        if (right > maxX) maxX = right;
-        if (top < minY) minY = top;
-        if (bottom > maxY) maxY = bottom;
-      }
-      const pad = 20;
-      this.contentX = minX - pad;
-      this.contentY = minY - pad;
-      this.contentWidth = maxX - minX + pad * 2;
-      this.contentHeight = maxY - minY + pad * 2;
-    }
-
-    // Draw bed markers
     this.bedGraphics.clear();
     for (const bed of beds) {
-      const mx = ((bed.x - this.contentX) / this.contentWidth) * this.mapWidth;
-      const my = ((bed.y - this.contentY) / this.contentHeight) * this.mapHeight;
-      const mw = (bed.width / this.contentWidth) * this.mapWidth;
-      const mh = (bed.height / this.contentHeight) * this.mapHeight;
+      const mx = (bed.x / this.worldWidth) * this.mapWidth;
+      const my = (bed.y / this.worldHeight) * this.mapHeight;
+      const mw = (bed.width / this.worldWidth) * this.mapWidth;
+      const mh = (bed.height / this.worldHeight) * this.mapHeight;
       const color = zoneColors[bed.zone] || 0x8d6e63;
       this.bedGraphics.fillStyle(color, 0.8);
       this.bedGraphics.fillRect(mx - mw / 2, my - mh / 2, mw, mh);
@@ -151,22 +124,30 @@ export class Minimap {
     );
 
     // Update viewport indicator using worldView (accounts for zoom correctly)
+    // Clamp to minimap bounds so it doesn't overflow outside the background
     const wv = cam.worldView;
-    const vx = ((wv.x - this.contentX) / this.contentWidth) * this.mapWidth;
-    const vy = ((wv.y - this.contentY) / this.contentHeight) * this.mapHeight;
-    const vw = (wv.width / this.contentWidth) * this.mapWidth;
-    const vh = (wv.height / this.contentHeight) * this.mapHeight;
+    const rawX = (wv.x / this.worldWidth) * this.mapWidth;
+    const rawY = (wv.y / this.worldHeight) * this.mapHeight;
+    const rawW = (wv.width / this.worldWidth) * this.mapWidth;
+    const rawH = (wv.height / this.worldHeight) * this.mapHeight;
+
+    const vx = Math.max(0, rawX);
+    const vy = Math.max(0, rawY);
+    const vw = Math.min(this.mapWidth - vx, rawW - (vx - rawX));
+    const vh = Math.min(this.mapHeight - vy, rawH - (vy - rawY));
+
     this.viewportIndicator.setPosition(vx, vy);
-    this.viewportIndicator.setSize(vw, vh);
+    this.viewportIndicator.setSize(Math.max(0, vw), Math.max(0, vh));
 
     // Update player dot
-    const px = ((playerX - this.contentX) / this.contentWidth) * this.mapWidth;
-    const py = ((playerY - this.contentY) / this.contentHeight) * this.mapHeight;
+    const px = (playerX / this.worldWidth) * this.mapWidth;
+    const py = (playerY / this.worldHeight) * this.mapHeight;
     this.playerDot.setPosition(px, py);
   }
 
-  setWorldSize(_width: number, _height: number) {
-    // Content bounds are computed from beds in updateBeds()
+  setWorldSize(width: number, height: number) {
+    this.worldWidth = width;
+    this.worldHeight = height;
   }
 
   destroy() {
